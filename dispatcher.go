@@ -44,13 +44,14 @@ var (
 // before and the provided url matches the baseURL and does not match
 // one of the provided URLSuffixes
 func followURLs(baseURL string) func(u string) bool {
-	uniqueURLs := map[string]bool{baseURL: true}
+	var uniqueURLs sync.Map
+	uniqueURLs.Store(baseURL, true)
 	return func(u string) bool {
 		u = strings.TrimSuffix(u, "/")
 		if !strings.Contains(u, baseURL) {
 			return false
 		}
-		if uniqueURLs[u] {
+		if _, ok := uniqueURLs.Load(u); ok {
 			return false
 		}
 		for _, skip := range URLSuffixesToSkip {
@@ -58,7 +59,7 @@ func followURLs(baseURL string) func(u string) bool {
 				return false
 			}
 		}
-		uniqueURLs[u] = true
+		uniqueURLs.Store(u, true)
 		return true
 	}
 }
@@ -78,19 +79,21 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 	links := make(chan string, LINKBUFFERSIZE)
 	links <- baseURL
 
+	initialised := false
+	var once sync.Once
+
 	var wg sync.WaitGroup
 	for i := 0; i < GOWORKERS; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			initialised := false
 			for {
 				select {
 				case url, ok := <-links:
 					if !ok {
-						return
+						return // the channel is closed
 					}
-					initialised = true
+					once.Do(func() { initialised = true })
 					thisResult, theseLinks := getURLer(url, searchTerms)
 					results <- thisResult
 					for _, l := range theseLinks {
@@ -101,23 +104,21 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 								// there is no buffer space in links; abort
 								fmt.Printf("no space in links channel to add item %s", url)
 								fmt.Println("...aborting")
-								close(links)
 								return
 							}
 						}
 					}
 				default: // no more urls to read
 					if initialised {
-						close(links)
 						return
 					}
-					time.Sleep(200 * time.Millisecond) // wait for startup and initial processing
 				}
 			}
 		}()
 	}
 	go func() {
 		wg.Wait()
+		close(links)
 		close(results)
 	}()
 	return results
