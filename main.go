@@ -85,7 +85,6 @@ func printResults(options Options, results <-chan Result) {
 		}
 	}
 	fmt.Fprintln(output, "processed", pages, "pages")
-	return
 }
 
 func main() {

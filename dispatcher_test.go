@@ -55,7 +55,7 @@ func TestGetter(t *testing.T) {
 
 	resultCollector := func() int {
 		i := 0
-		for _ = range Dispatcher("https://example.com", []string{}) {
+		for range Dispatcher("https://example.com", []string{}) {
 			i++
 		}
 		return i
