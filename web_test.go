@@ -55,7 +55,7 @@ func TestGetMatches(t *testing.T) {
 			body:        []byte("there\nthere old man\nmatch string\n---"),
 			searchTerms: []string{"match string"},
 			hits:        1,
-			strResults:  "  3 : match string", // line 3, search term
+			strResults:  "line:   3 match: match string", // line 3, search term
 		},
 		{
 			body:        []byte("there there old man"),

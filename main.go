@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 
 	flags "github.com/jessevdk/go-flags"
@@ -17,6 +19,9 @@ Application Arguments:
 
  `
 
+// errorForOSExit signals that an os.Exit(1) is required
+var errorForOSExit = errors.New("osexit")
+
 // Options are the command line options
 type Options struct {
 	SearchTerms []string `short:"s" long:"searchterm" required:"true" description:"search terms, can be specified more than once"`
@@ -27,7 +32,7 @@ type Options struct {
 }
 
 // getOptions gets the command line options
-func getOptions() Options {
+func getOptions() (Options, error) {
 	var options Options
 	var parser = flags.NewParser(&options, flags.Default)
 	parser.Usage = Usage
@@ -37,13 +42,19 @@ func getOptions() Options {
 		if !flags.WroteHelp(err) {
 			parser.WriteHelp(os.Stdout)
 		}
-		os.Exit(1)
+		return options, errorForOSExit
 	}
-	return options
+	return options, nil
 }
+
+// output sets the io.Writer for output
+var output io.Writer = os.Stdout
 
 // printResults prints results
 func printResults(options Options, results <-chan Result) {
+
+	fmt.Fprintf(output, "\nCommencing search of %s:\n", options.Args.BaseURL)
+
 	pages := 0
 	for r := range results {
 		pages++
@@ -51,33 +62,37 @@ func printResults(options Options, results <-chan Result) {
 		case NonHTMLPageType:
 			continue
 		case StatusNotOk:
-			fmt.Printf("%s : status %d\n", r.url, r.status)
+			fmt.Fprintf(output, "%s : status %d\n", r.url, r.status)
 			continue
 		default:
 			if r.err != nil {
-				fmt.Printf("%s : error %v\n", r.url, r.err)
+				fmt.Fprintf(output, "%s : error %v\n", r.url, r.err)
 				continue
 			}
 		}
 
 		// print url if vebose
 		if options.Verbose {
-			fmt.Printf("%s\n", r.url)
+			fmt.Fprintf(output, "%s\n", r.url)
 		}
 
 		// matches
 		if len(r.matches) > 0 {
-			fmt.Printf("%s\n", r.url)
+			fmt.Fprintf(output, "%s\n", r.url)
 			for _, m := range r.matches {
-				fmt.Printf("> match %s\n", m)
+				fmt.Fprintf(output, "> %s\n", m)
 			}
 		}
 	}
-	fmt.Println("processed", pages, "pages")
+	fmt.Fprintln(output, "processed", pages, "pages")
+	return
 }
 
 func main() {
-	options := getOptions()
+	options, err := getOptions()
+	if errors.Is(errorForOSExit, err) {
+		os.Exit(1)
+	}
 	results := Dispatcher(options.Args.BaseURL, options.SearchTerms)
 	printResults(options, results)
 }

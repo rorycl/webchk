@@ -50,7 +50,7 @@ type SearchMatch struct {
 
 // String prints a SearchMatch
 func (s SearchMatch) String() string {
-	return fmt.Sprintf("%3d : %s", s.line, s.match)
+	return fmt.Sprintf("line: %3d match: %s", s.line, s.match)
 }
 
 // getURL gets a URL, reporting a status if not 200, extracts the links
