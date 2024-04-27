@@ -56,7 +56,7 @@ func (s SearchMatch) String() string {
 // getURL gets a URL, reporting a status if not 200, extracts the links
 // from the page and reports if there are any matches to the
 // searchTerms.
-func getURL(url string, searchTerms []string) (Result, []string) {
+func getURL(url string, searchTerms []string, done <-chan struct{}) (Result, []string) {
 	r := Result{
 		url:     url,
 		matches: []SearchMatch{},
@@ -91,6 +91,13 @@ func getURL(url string, searchTerms []string) (Result, []string) {
 	}
 
 	r.matches = getMatcher(body, searchTerms)
+
+	// return early if done
+	select {
+	case <-done:
+		return r, []string{}
+	default:
+	}
 
 	return r, links
 }
@@ -129,6 +136,7 @@ func getLinks(body []byte, url *url.URL) ([]string, error) {
 		return links
 	}
 	links = visit(doc)
+
 	return links, nil
 }
 

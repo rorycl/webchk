@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLinkError(t *testing.T) {
@@ -41,11 +42,24 @@ func TestFollowURLs(t *testing.T) {
 	}
 }
 
-func TestGetter(t *testing.T) {
+func TestDispatcher(t *testing.T) {
+
+	// HTTPTIMEOUT reset
+	httpMS := 20
+	HTTPTIMEOUT = (time.Millisecond * time.Duration(httpMS))
+	dispatchMS := 25
+	// DISPATCHERTIMEOUT set below
 
 	// getURLer is an indirector: see dispatcher.go
 	links := []string{}
-	getURLer = func(url string, searchTerms []string) (Result, []string) {
+	getURLer = func(url string, searchTerms []string, done <-chan struct{}) (Result, []string) {
+		time.Sleep(HTTPTIMEOUT - 200) // just less than the http timeout
+		select {
+		case <-done:
+			fmt.Println("getURLer early done")
+			return Result{}, []string{}
+		default:
+		}
 		return Result{
 			url:     "https://example.com",
 			status:  200,
@@ -74,6 +88,7 @@ func TestGetter(t *testing.T) {
 		linkbuffersize int
 		links          []string
 		resultNo       int
+		dispatchMS     int // set the dispatcher
 	}{
 		{
 			workers:        1,
@@ -86,13 +101,27 @@ func TestGetter(t *testing.T) {
 			workers:        1,
 			linkbuffersize: 1,
 			links:          prefixer([]string{"1", "2"}...),
-			resultNo:       1, // base url, no links
+			resultNo:       2, // base url, first link, second fails
+		},
+		{
+			// should proceed fine
+			workers:        1,
+			linkbuffersize: 1,
+			links:          []string{},
+			resultNo:       1, // only base url
 		},
 		{
 			workers:        2,
 			linkbuffersize: 2,
 			links:          prefixer([]string{"1", "2"}...),
 			resultNo:       3,
+		},
+		{
+			workers:        2,
+			linkbuffersize: 2,
+			links:          prefixer([]string{"1", "2"}...),
+			resultNo:       1,          // only the first should succeed
+			dispatchMS:     httpMS - 3, // timeout before the http calls have finished
 		},
 		{
 			workers:        2,
@@ -118,6 +147,13 @@ func TestGetter(t *testing.T) {
 		t.Run(fmt.Sprintf("test %d", i), func(t *testing.T) {
 			GOWORKERS = tt.workers
 			LINKBUFFERSIZE = tt.linkbuffersize
+			if tt.dispatchMS != 0 {
+				DISPATCHERTIMEOUT = time.Millisecond * time.Duration(tt.dispatchMS)
+			} else {
+				// default
+				DISPATCHERTIMEOUT = time.Millisecond * time.Duration(dispatchMS)
+			}
+			fmt.Println("HTTPTIMEOUT", HTTPTIMEOUT, "DISPATCHERTIMEOUT", DISPATCHERTIMEOUT)
 			links = tt.links
 			if got, want := resultCollector(), tt.resultNo; got != want {
 				t.Errorf("got %d want %d results", got, want)
