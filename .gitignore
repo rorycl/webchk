@@ -2,3 +2,4 @@ webchk
 cover.rpt
 coverage.out
 cover.html
+bin/webchk*

@@ -11,6 +11,9 @@ CURDIR := $(shell pwd)
 build:
 	go test . && echo "---ok---" && go build .
 
+build-many:
+	bin/builder.sh . webchk
+
 del-bin:
 	rm ./webchk
 
