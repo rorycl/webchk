@@ -2,7 +2,11 @@
 // or more search phrases. The search phrase matches are made in
 // lowercase and a naive search is made including all of the markup
 // (instead of using, for example, goquery).
+
 package main
+
+// Thank you, Katherine Cox–Buday, for your incredibly helpful book
+// "Concurrency in Go".
 
 import (
 	"errors"
@@ -41,10 +45,7 @@ var (
 	// url suffixes to skip
 	URLSuffixesToSkip = []string{".png", ".jpg", ".jpeg", ".heic", ".svg"}
 	// getURLer indirects getURL for testing
-	getURLer func(url string, searchTerms []string, done <-chan struct{}) (Result, []string) = getURL
-
-	getURLtmper func(id int, searchTerms []string, links <-chan string, thisResult chan<- Result,
-		theseLinks chan<- []string, done <-chan struct{}) = getURLtmp
+	getURLer func(url string, searchTerms []string) (Result, []string) = getURL
 )
 
 var (
@@ -97,7 +98,8 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 	done := make(chan struct{})
 
 	// linkManager manages a channel with a buffer of links to process,
-	// limited to LINKBUFFERSIZE
+	// limited to LINKBUFFERSIZE. It returns a channel to read the links
+	// and a chancel to write new links to the buffer.
 	linkManager := func() (<-chan string, chan<- string) {
 
 		// links is a buffer of urls to process
@@ -120,10 +122,8 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 			for {
 				select {
 				case l := <-linkFound:
-					fmt.Println("manager resetting with", l)
 					toResetter() // reset timeout
 					if !follow(l) {
-						fmt.Println("   follow was false for", l)
 						continue
 					}
 					select { // select here in case no space left in links
@@ -135,32 +135,46 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 						return
 					}
 				case <-timeout.C:
-					fmt.Println("manager timing out")
-					fmt.Printf("cap %d len %d\n", cap(links), len(links))
 					close(links)
 					close(done)
 					return
 				}
 			}
-			fmt.Println("manager exited")
 		}()
 		return links, linkFound
 	}
 
+	// linkConsumer creates a set of workers for reading the links
+	// channel, returning two channels, one of Result, the other slice
+	// of new links (urls) to be consumed by linkReturner
 	linkConsumer := func(links <-chan string) (<-chan Result, <-chan []string) {
-
 		getResult := make(chan Result)
 		getLinkResults := make(chan []string)
-
-		for i := range GOWORKERS {
-			ii := i
-			go getURLtmper(ii, searchTerms, links, getResult, getLinkResults, done)
+		for range GOWORKERS {
+			go func() {
+				for {
+					select {
+					case <-done:
+						return
+					case url, ok := <-links:
+						if !ok {
+							return
+						}
+						result, links := getURLer(url, searchTerms)
+						getResult <- result
+						getLinkResults <- links
+					}
+				}
+			}()
 		}
 		return getResult, getLinkResults
 	}
 
-	// resulter consumes links from linkManager while receiving more
-	// links from linkConsumer which are sent back to linkManager
+	// linkReturner consumes getResult and getLinkResults from
+	// linkConsumer. It returns a channel of Result to the user of the
+	// outer function and feeds new links onto linkFound, which is used
+	// by linkManager to add to the link buffer if the link has not been
+	// seen.
 	linkReturner := func(getResult <-chan Result, getLinkResults <-chan []string, linkFound chan<- string) <-chan Result {
 		finalResults := make(chan Result)
 		go func() {
@@ -170,15 +184,12 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 					close(finalResults)
 					return
 				case lr := <-getResult:
-					fmt.Println("   sending results")
 					finalResults <- lr
 				case hLinks, ok := <-getLinkResults:
 					if !ok {
 						close(finalResults)
 						return
 					}
-					fmt.Println("links received", hLinks)
-					fmt.Println("   sending links")
 					for _, l := range hLinks {
 						linkFound <- l
 					}
@@ -188,6 +199,7 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 		return finalResults
 	}
 
+	// join the three goroutines
 	links, linkFound := linkManager()
 	localResults, localLinks := linkConsumer(links)
 	return linkReturner(localResults, localLinks, linkFound)

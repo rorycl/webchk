@@ -53,10 +53,10 @@ func (s SearchMatch) String() string {
 	return fmt.Sprintf("line: %3d match: %s", s.line, s.match)
 }
 
-// getURL gets a URL, reporting a status if not 200, extracts the links
+// get gets a URL, reporting a status if not 200, extracts the links
 // from the page and reports if there are any matches to the
 // searchTerms.
-func getURL(url string, searchTerms []string, done <-chan struct{}) (Result, []string) {
+func getURL(url string, searchTerms []string) (Result, []string) {
 	r := Result{
 		url:     url,
 		matches: []SearchMatch{},
@@ -93,67 +93,6 @@ func getURL(url string, searchTerms []string, done <-chan struct{}) (Result, []s
 	r.matches = getMatcher(body, searchTerms)
 
 	return r, links
-}
-
-func getURLtmp(id int, searchTerms []string, links <-chan string, thisResult chan<- Result,
-	theseLinks chan<- []string, done <-chan struct{}) {
-
-	go func() {
-		for {
-			select {
-			case <-done:
-				return
-			case url, ok := <-links:
-				if !ok {
-					return
-				}
-				fmt.Println("got url in tmp", url)
-
-				r := Result{
-					url:     url,
-					matches: []SearchMatch{},
-				}
-				links := []string{}
-
-				resp, err := Client.Get(url)
-				if err != nil {
-					r.err = err
-					thisResult <- r
-					continue
-				}
-				r.status = resp.StatusCode
-				if r.status != http.StatusOK {
-					r.err = StatusNotOk
-					thisResult <- r
-					continue
-				}
-				if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/html") {
-					r.err = NonHTMLPageType
-					thisResult <- r
-					continue
-				}
-				defer resp.Body.Close()
-				body, err := io.ReadAll(resp.Body) // read into body for multiple uses
-				if err != nil {
-					r.err = fmt.Errorf("file reading error: %w", err)
-					thisResult <- r
-					continue
-				}
-
-				links, err = getLinker(body, resp.Request.URL)
-				if err != nil {
-					r.err = fmt.Errorf("links error: %w", err)
-					thisResult <- r
-					continue
-				}
-
-				r.matches = getMatcher(body, searchTerms)
-
-				thisResult <- r
-				theseLinks <- links
-			} // select
-		} // for
-	}()
 }
 
 // getLinks extracts the links from an html page by parsing it in to an

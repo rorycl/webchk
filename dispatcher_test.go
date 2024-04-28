@@ -52,43 +52,13 @@ func TestDispatcher(t *testing.T) {
 
 	// getURLer is an indirector: see dispatcher.go
 	links := []string{}
-	getURLer = func(url string, searchTerms []string, done <-chan struct{}) (Result, []string) {
+	getURLer = func(url string, searchTerms []string) (Result, []string) {
 		time.Sleep(HTTPTIMEOUT - 200) // just less than the http timeout
-		select {
-		case <-done:
-			fmt.Println("getURLer early done")
-			return Result{}, []string{}
-		default:
-		}
 		return Result{
 			url:     "https://example.com",
 			status:  200,
 			matches: []SearchMatch{},
 		}, links
-	}
-
-	getURLtmper = func(id int, searchTerms []string, linkSupplier <-chan string, thisResult chan<- Result,
-		theseLinks chan<- []string, done <-chan struct{}) {
-
-		go func() {
-			fmt.Println("in getURLtmper", id)
-			for {
-				select {
-				case <-done:
-					fmt.Println("> got done in getURLtmper", id)
-					return
-				case l := <-linkSupplier:
-					fmt.Println("> got link in getURLtmper", l)
-					time.Sleep(HTTPTIMEOUT - 200) // just less than the http timeout
-					thisResult <- Result{
-						url:     "https://example.com",
-						status:  200,
-						matches: []SearchMatch{},
-					}
-					theseLinks <- links
-				}
-			}
-		}()
 	}
 
 	resultCollector := func() int {
@@ -120,12 +90,12 @@ func TestDispatcher(t *testing.T) {
 			links:          prefixer([]string{"1", "2"}...),
 			resultNo:       3, // base url + 2 links
 		},
-		{
+		{ // 1
 			// fails with not enough room in the buffer
 			workers:        1,
 			linkbuffersize: 1,
 			links:          prefixer([]string{"1", "2"}...),
-			resultNo:       3, // base url + first two links
+			resultNo:       1, // base url only; no space left on buffer
 		},
 		{ // 2
 			// should proceed fine
@@ -177,7 +147,6 @@ func TestDispatcher(t *testing.T) {
 				// default
 				DISPATCHERTIMEOUT = time.Millisecond * time.Duration(dispatchMS)
 			}
-			fmt.Println("HTTPTIMEOUT", HTTPTIMEOUT, "DISPATCHERTIMEOUT", DISPATCHERTIMEOUT)
 			links = tt.links
 			if got, want := resultCollector(), tt.resultNo; got != want {
 				t.Errorf("got %d want %d results", got, want)

@@ -32,27 +32,27 @@ Arguments:
 Example:
 
 ```
-./webchk -v -s "quantum computer" https://slashdot.org | head -n 20
+$ ./webchk -v -s "espionage" https://slashdot.org | head -n 20
 
 Commencing search of https://slashdot.org:
 https://slashdot.org
-https://slashdot.org
-> line: 1396 match: quantum computer
-> line: 1447 match: quantum computer
-> line: 1449 match: quantum computer
-https://slashdot.org/archive.pl
-https://slashdot.org/archive.pl
-> line: 1151 match: quantum computer
-https://slashdot.org/blog
-https://slashdot.org/faq
+https://slashdot.org/jobs
 https://slashdot.org/faq/slashmeta.shtml
 https://slashdot.org/hof.shtml
 https://slashdot.org/index2.pl
-https://slashdot.org/index2.pl
-> line: 1396 match: quantum computer
-> line: 1447 match: quantum computer
-> line: 1449 match: quantum computer
-https://slashdot.org/jobs
+https://slashdot.org/my/newuser : status 403
+https://slashdot.org/faq
+https://slashdot.org/login.pl
+https://slashdot.org/my/mailpassword
+https://slashdot.org/my/login
+https://slashdot.org/newsletter
+https://slashdot.org/popular
+https://slashdot.org/popular
+> line: 2522 match: espionage
+> line: 2524 match: espionage
+https://slashdot.org/archive.pl
+https://slashdot.org/archive.pl
+> line: 1352 match: espionage
 ```
 
 

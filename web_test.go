@@ -271,7 +271,7 @@ func TestGetURL(t *testing.T) {
 				linkError = tt.linkError
 			}
 
-			result, _ := getURL(tt.url, tt.searchTerms, make(chan struct{}))
+			result, _ := getURL(tt.url, tt.searchTerms)
 
 			if result.err != tt.result.err {
 				if !errors.Is(result.err, tt.result.err) {
