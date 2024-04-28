@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -43,6 +42,9 @@ var (
 	URLSuffixesToSkip = []string{".png", ".jpg", ".jpeg", ".heic", ".svg"}
 	// getURLer indirects getURL for testing
 	getURLer func(url string, searchTerms []string, done <-chan struct{}) (Result, []string) = getURL
+
+	getURLtmper func(id int, searchTerms []string, links <-chan string, thisResult chan<- Result,
+		theseLinks chan<- []string, done <-chan struct{}) = getURLtmp
 )
 
 var (
@@ -92,17 +94,17 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 		fmt.Println(ErrDispatchTimeoutTooSmall)
 	}
 
-	// linkFound is a found like to be inserted into the links buffered
-	// channel
-	linkFound := make(chan string)
-
 	done := make(chan struct{})
 
 	// linkManager manages a channel with a buffer of links to process,
 	// limited to LINKBUFFERSIZE
-	linkManager := func(linkFound <-chan string) <-chan string {
+	linkManager := func() (<-chan string, chan<- string) {
 
+		// links is a buffer of urls to process
 		links := make(chan string, LINKBUFFERSIZE)
+		// linkFound is a link to be inserted into links
+		linkFound := make(chan string)
+
 		links <- baseURL
 
 		follow := followURLs(baseURL) // whether to follow urls
@@ -114,89 +116,79 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 			}
 			timeout.Reset(DISPATCHERTIMEOUT)
 		}
-
-		var wg sync.WaitGroup
 		go func() {
-			wg.Add(1)
-			defer close(links)
-			defer wg.Done()
 			for {
 				select {
 				case l := <-linkFound:
+					fmt.Println("manager resetting with", l)
 					toResetter() // reset timeout
 					if !follow(l) {
+						fmt.Println("   follow was false for", l)
 						continue
 					}
 					select { // select here in case no space left in links
 					case links <- l:
 					default:
-						done <- struct{}{}
+						fmt.Println("no space left on buffer")
+						close(links)
+						close(done)
 						return
 					}
 				case <-timeout.C:
 					fmt.Println("manager timing out")
-					done <- struct{}{}
+					fmt.Printf("cap %d len %d\n", cap(links), len(links))
+					close(links)
+					close(done)
 					return
 				}
 			}
+			fmt.Println("manager exited")
 		}()
-		go func() { // keep the above goroutine running
-			wg.Wait()
-			return
-		}()
-		return links
+		return links, linkFound
 	}
 
-	// linkConsumerMaker consumes links from linkManager while making
-	// more links
-	linkConsumerMaker := func(links <-chan string, linkFound chan<- string) <-chan Result {
+	linkConsumer := func(links <-chan string) (<-chan Result, <-chan []string) {
 
-		results := make(chan Result)
+		getResult := make(chan Result)
+		getLinkResults := make(chan []string)
 
-		var wg sync.WaitGroup
-		wg.Add(GOWORKERS)
 		for i := range GOWORKERS {
-			go func() {
-				ii := i
-				fmt.Println("go routine", ii, "started")
-				defer wg.Done()
-				defer fmt.Println("go routine", ii, "done")
-				for {
-					select {
-					case <-done:
-						fmt.Println("top done", ii)
+			ii := i
+			go getURLtmper(ii, searchTerms, links, getResult, getLinkResults, done)
+		}
+		return getResult, getLinkResults
+	}
+
+	// resulter consumes links from linkManager while receiving more
+	// links from linkConsumer which are sent back to linkManager
+	linkReturner := func(getResult <-chan Result, getLinkResults <-chan []string, linkFound chan<- string) <-chan Result {
+		finalResults := make(chan Result)
+		go func() {
+			for {
+				select {
+				case <-done:
+					close(finalResults)
+					return
+				case lr := <-getResult:
+					fmt.Println("   sending results")
+					finalResults <- lr
+				case hLinks, ok := <-getLinkResults:
+					if !ok {
+						close(finalResults)
 						return
-					case url, ok := <-links:
-						if !ok { // closed channel
-							fmt.Println("links done", ii)
-							return
-						}
-						thisResult, theseLinks := getURLer(url, searchTerms, done)
-						// because getURLer takes a while, check if done
-						// has been completed
-						select {
-						case <-done:
-							fmt.Println("post result return b", ii)
-							// links = nil
-							return
-						default:
-						}
-						results <- thisResult
-						for _, u := range theseLinks {
-							linkFound <- u
-						}
+					}
+					fmt.Println("links received", hLinks)
+					fmt.Println("   sending links")
+					for _, l := range hLinks {
+						linkFound <- l
 					}
 				}
-			}()
-		}
-
-		go func() { // keep the above goroutine running
-			wg.Wait()
-			close(results)
+			}
 		}()
-		return results
+		return finalResults
 	}
 
-	links := linkManager(linkFound)
-	return linkConsumerMaker(links, linkFound)
+	links, linkFound := linkManager()
+	localResults, localLinks := linkConsumer(links)
+	return linkReturner(localResults, localLinks, linkFound)
 }
