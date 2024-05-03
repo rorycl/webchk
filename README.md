@@ -3,9 +3,10 @@
 A Go command to recursively search a website for case insensitive search
 terms.
 
-Future releases may make the number of concurrent http connections and
-amount of concurrency tunable. The buffer of links to follow is
-presently fixed at 1000; more than that will exit the program.
+Future releases may make the number of concurrent http connections,
+amount of concurrency and http and no response timeouts tunable. The
+buffer of links to follow is presently fixed at 25,000; more than that
+will exit the program.
 
 ```
 Usage:
