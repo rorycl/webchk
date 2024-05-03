@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -95,112 +96,85 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 		fmt.Println(ErrDispatchTimeoutTooSmall)
 	}
 
-	done := make(chan struct{})
+	parallelURLgetter := func(inputURLs <-chan string, done <-chan struct{}) (
+		<-chan Result, <-chan []string,
+	) {
+		results := make(chan Result)
+		outputLinks := make(chan []string)
 
-	// linkManager manages a channel with a buffer of links to process,
-	// limited to LINKBUFFERSIZE. It returns a channel to read the links
-	// and a chancel to write new links to the buffer.
-	linkManager := func() (<-chan string, chan<- string) {
-
-		// links is a buffer of urls to process
-		links := make(chan string, LINKBUFFERSIZE)
-		// linkFound is a link to be inserted into links
-		linkFound := make(chan string)
-
-		links <- baseURL
-
-		follow := followURLs(baseURL) // whether to follow urls
-
-		timeout := time.NewTimer(DISPATCHERTIMEOUT)
-		toResetter := func() {
-			if !timeout.Stop() {
-				<-timeout.C
-			}
-			timeout.Reset(DISPATCHERTIMEOUT)
-		}
-		go func() {
-			for {
-				select {
-				case l := <-linkFound:
-					toResetter() // reset timeout
-					if !follow(l) {
-						continue
-					}
-					select { // select here in case no space left in links
-					case links <- l:
-					default:
-						fmt.Println("no space left on buffer")
-						close(links)
-						close(done)
-						return
-					}
-				case <-timeout.C:
-					close(links)
-					close(done)
-					return
-				}
-			}
-		}()
-		return links, linkFound
-	}
-
-	// linkConsumer creates a set of workers for reading the links
-	// channel, returning two channels, one of Result, the other slice
-	// of new links (urls) to be consumed by linkReturner
-	linkConsumer := func(links <-chan string) (<-chan Result, <-chan []string) {
-		getResult := make(chan Result)
-		getLinkResults := make(chan []string)
+		var wg sync.WaitGroup
+		wg.Add(GOWORKERS)
 		for range GOWORKERS {
 			go func() {
+				defer wg.Done()
 				for {
 					select {
 					case <-done:
 						return
-					case url, ok := <-links:
-						if !ok {
-							return
-						}
+					case url := <-inputURLs:
 						result, links := getURLer(url, searchTerms)
-						getResult <- result
-						getLinkResults <- links
+						select { // needed as getURLer may take some time
+						case <-done:
+							return
+						default:
+						}
+						results <- result
+						outputLinks <- links
 					}
 				}
 			}()
 		}
-		return getResult, getLinkResults
+		go func() {
+			wg.Wait()
+			close(results)
+			close(outputLinks)
+		}()
+		return results, outputLinks
 	}
 
-	// linkReturner consumes getResult and getLinkResults from
-	// linkConsumer. It returns a channel of Result to the user of the
-	// outer function and feeds new links onto linkFound, which is used
-	// by linkManager to add to the link buffer if the link has not been
-	// seen.
-	linkReturner := func(getResult <-chan Result, getLinkResults <-chan []string, linkFound chan<- string) <-chan Result {
-		finalResults := make(chan Result)
-		go func() {
-			for {
-				select {
-				case <-done:
-					close(finalResults)
-					return
-				case lr := <-getResult:
-					finalResults <- lr
-				case hLinks, ok := <-getLinkResults:
-					if !ok {
-						close(finalResults)
+	links := make(chan string, LINKBUFFERSIZE)
+	done := make(chan struct{})
+	resultsOutput := make(chan Result)
+
+	results, linksFound := parallelURLgetter(links, done)
+
+	follow := followURLs(baseURL)
+	links <- baseURL
+
+	timeout := time.NewTimer(DISPATCHERTIMEOUT)
+	toResetter := func() {
+		if !timeout.Stop() {
+			<-timeout.C
+		}
+		timeout.Reset(DISPATCHERTIMEOUT)
+	}
+
+	go func() {
+		defer close(resultsOutput)
+		for {
+			select {
+			case hereLinks := <-linksFound:
+				toResetter() // reset timeout
+				for _, l := range hereLinks {
+					if !follow(l) {
+						continue
+					}
+					select {
+					case links <- l:
+					default:
+						fmt.Println("no space left on buffer")
+						close(done)
 						return
 					}
-					for _, l := range hLinks {
-						linkFound <- l
-					}
 				}
+			case r := <-results:
+				toResetter() // reset timeout
+				resultsOutput <- r
+			case <-timeout.C:
+				close(done)
+				return
 			}
-		}()
-		return finalResults
-	}
-
-	// join the three goroutines
-	links, linkFound := linkManager()
-	localResults, localLinks := linkConsumer(links)
-	return linkReturner(localResults, localLinks, linkFound)
+		}
+	}()
+	return resultsOutput
 }
