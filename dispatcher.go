@@ -11,6 +11,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -34,14 +35,14 @@ var (
 	// GOWORKERS is the number of worker goroutines to start
 	GOWORKERS = 8
 	// LINKBUFFERSIZE is the size of the link buffer during processing
-	LINKBUFFERSIZE = 1000
+	LINKBUFFERSIZE = 2500
 	// HTTPWORKERS is the number of concurrent web queries to run
 	HTTPWORKERS = 16
 	// HTTPTIMEOUT is the longest a web connection will stay open
-	HTTPTIMEOUT time.Duration = 1750 * time.Millisecond
+	HTTPTIMEOUT time.Duration = 2500 * time.Millisecond
 	// DISPATCHERTIMEOUT is how long the dispatcher will wait for
 	// results. This is slightly longer than HTTPTIMEOUT
-	DISPATCHERTIMEOUT time.Duration = 2000 * time.Millisecond
+	DISPATCHERTIMEOUT time.Duration = 2750 * time.Millisecond
 
 	// url suffixes to skip
 	URLSuffixesToSkip = []string{".png", ".jpg", ".jpeg", ".heic", ".svg"}
@@ -169,6 +170,11 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 				}
 			case r := <-results:
 				toResetter() // reset timeout
+				if r.status == http.StatusTooManyRequests {
+					fmt.Println("too many requests response. quitting...")
+					close(done)
+					return
+				}
 				resultsOutput <- r
 			case <-timeout.C:
 				close(done)
