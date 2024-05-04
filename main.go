@@ -26,6 +26,9 @@ var errorForOSExit = errors.New("osexit")
 type Options struct {
 	SearchTerms []string `short:"s" long:"searchterm" required:"true" description:"search terms, can be specified more than once"`
 	Verbose     bool     `short:"v" long:"verbose" description:"set verbose output"`
+	BufferSize  int      `short:"z" long:"buffersize" description:"size of links buffer" default:"2500"`
+	Workers     int      `short:"w" long:"workers" description:"number of goroutine workers" default:"8"`
+	HTTPWorkers int      `short:"x" long:"httpworkers" description:"number of http workers" default:"16"`
 	Args        struct {
 		BaseURL string `description:"base url to search"`
 	} `positional-args:"yes" required:"yes"`
@@ -43,6 +46,15 @@ func getOptions() (Options, error) {
 			parser.WriteHelp(os.Stdout)
 		}
 		return options, errorForOSExit
+	}
+	if options.BufferSize > 0 && options.BufferSize != LINKBUFFERSIZE {
+		LINKBUFFERSIZE = options.BufferSize
+	}
+	if options.Workers > 0 && options.Workers != GOWORKERS {
+		GOWORKERS = options.Workers
+	}
+	if options.HTTPWorkers > 0 && options.HTTPWorkers != HTTPWORKERS {
+		HTTPWORKERS = options.HTTPWorkers
 	}
 	return options, nil
 }

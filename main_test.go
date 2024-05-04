@@ -18,6 +18,9 @@ func TestGetOptions(t *testing.T) {
 		SearchTerms []string
 		Verbose     bool
 		BaseURL     string
+		BufferSize  int
+		HTTPWorkers int
+		Workers     int
 		ok          bool
 	}{
 		{
@@ -59,11 +62,54 @@ func TestGetOptions(t *testing.T) {
 			argString: `<prog> -n https://www.there.com`,
 			ok:        false,
 		},
+		{
+			argString:   `<prog> -v -s "hi" -z 100 -s "there" https://www.test.com`,
+			SearchTerms: []string{"hi", "there"},
+			Verbose:     true,
+			BaseURL:     "https://www.test.com",
+			ok:          true,
+			BufferSize:  100,
+		},
+		{
+			argString:   `<prog> -v -s "hi" -w 100 -s "there" https://www.test.com`,
+			SearchTerms: []string{"hi", "there"},
+			Verbose:     true,
+			BaseURL:     "https://www.test.com",
+			ok:          true,
+			Workers:     100,
+		},
+		{
+			argString:   `<prog> -v -s "hi" -x 100 -s "there" https://www.test.com`,
+			SearchTerms: []string{"hi", "there"},
+			Verbose:     true,
+			BaseURL:     "https://www.test.com",
+			ok:          true,
+			HTTPWorkers: 100,
+		},
+		{
+			argString:   `<prog> -v -s "hi" -z 5 -w 6 -x 7 -s "there" https://www.test.com`,
+			SearchTerms: []string{"hi", "there"},
+			Verbose:     true,
+			BaseURL:     "https://www.test.com",
+			ok:          true,
+			BufferSize:  5,
+			Workers:     6,
+			HTTPWorkers: 7,
+		},
 	}
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("test_%d", i), func(t *testing.T) {
 			os.Args = strings.Fields(tt.argString)
 			options, err := getOptions()
+			if tt.BufferSize == 0 {
+				tt.BufferSize = LINKBUFFERSIZE
+			}
+			if tt.Workers == 0 {
+				tt.Workers = GOWORKERS
+			}
+			if tt.HTTPWorkers == 0 {
+				tt.HTTPWorkers = HTTPWORKERS
+			}
 			if err != nil && tt.ok {
 				t.Errorf("unexpected error %v", err)
 				t.Log(os.Args)
@@ -83,6 +129,15 @@ func TestGetOptions(t *testing.T) {
 			}
 			if got, want := options.Verbose, tt.Verbose; got != want {
 				t.Errorf("verbose mismatch want %t got %t", got, want)
+			}
+			if got, want := LINKBUFFERSIZE, tt.BufferSize; got != want {
+				t.Errorf("link buffersize mismatch want %d got %d", got, want)
+			}
+			if got, want := GOWORKERS, tt.Workers; got != want {
+				t.Errorf("workers mismatch want %d got %d", got, want)
+			}
+			if got, want := HTTPWORKERS, tt.HTTPWorkers; got != want {
+				t.Errorf("http workers mismatch want %d got %d", got, want)
 			}
 			if got, want := options.Args.BaseURL, tt.BaseURL; got != want {
 				t.Errorf("baseurl mismatch want %s got %s", got, want)
