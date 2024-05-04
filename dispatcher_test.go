@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"go.uber.org/goleak"
 )
 
 func TestLinkError(t *testing.T) {
@@ -188,8 +190,9 @@ func TestDispatcher(t *testing.T) {
 	}
 
 	for i, tt := range tests {
+		// not parallel safe due to global use of links
 		t.Run(fmt.Sprintf("test %d", i), func(t *testing.T) {
-			// not parallel safe due to global use of links
+			defer goleak.VerifyNone(t)
 			GOWORKERS = tt.workers
 			LINKBUFFERSIZE = tt.linkbuffersize
 			if tt.dispatchMS != 0 {
@@ -200,7 +203,6 @@ func TestDispatcher(t *testing.T) {
 			}
 			links = tt.links
 			resultNo := resultCollector()
-			// t.Log(resultNo)
 			if got, want := resultNo, tt.resultNo; !tt.resultChk(resultNo, tt.resultNo) {
 				t.Errorf("got %d want %d results", got, want)
 			}

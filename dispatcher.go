@@ -114,13 +114,20 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 						return
 					case url := <-inputURLs:
 						result, links := getURLer(url, searchTerms)
-						select { // needed as getURLer may take some time
+						// done checks for each send of the results from
+						// getURLer are needed as getURLer may take some
+						// time. The guards are to stop sends causing
+						// goroutine leaks.
+						select {
 						case <-done:
 							return
-						default:
+						case results <- result:
 						}
-						results <- result
-						outputLinks <- links
+						select {
+						case <-done:
+							return
+						case outputLinks <- links:
+						}
 					}
 				}
 			}()
@@ -152,6 +159,7 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 
 	go func() {
 		defer close(resultsOutput)
+		defer close(links)
 		for {
 			select {
 			case hereLinks := <-linksFound:
@@ -171,7 +179,7 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 			case r := <-results:
 				toResetter() // reset timeout
 				if r.status == http.StatusTooManyRequests {
-					fmt.Println("too many requests response. quitting...")
+					fmt.Println("too many requests error. quitting...")
 					close(done)
 					return
 				}
