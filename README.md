@@ -3,10 +3,8 @@
 A Go command to recursively search a website for case insensitive search
 terms.
 
-Future releases may make the number of concurrent http connections,
-amount of concurrency and http and no response timeouts tunable. The
-buffer of links to follow is presently fixed at 25,000; more than that
-will exit the program.
+The default buffer of links to follow is presently fixed at 25,000; more
+than that will exit the program.
 
 ```
 Usage:
@@ -20,14 +18,17 @@ Application Arguments:
   BaseURL
 
 Application Options:
-  -s, --searchterm= search terms, can be specified more than once
-  -v, --verbose     set verbose output
+  -s, --searchterm=  search terms, can be specified more than once
+  -v, --verbose      set verbose output
+  -z, --buffersize=  size of links buffer (default: 2500)
+  -w, --workers=     number of goroutine workers (default: 8)
+  -x, --httpworkers= number of http workers (default: 16)
 
 Help Options:
-  -h, --help        Show this help message
+  -h, --help         Show this help message
 
 Arguments:
-  BaseURL:          base url to search
+  BaseURL:           base url to search
 ```
 
 Example:
