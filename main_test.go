@@ -19,6 +19,7 @@ func TestGetOptions(t *testing.T) {
 		Verbose     bool
 		BaseURL     string
 		BufferSize  int
+		QuerySec    int
 		HTTPWorkers int
 		Workers     int
 		ok          bool
@@ -70,6 +71,13 @@ func TestGetOptions(t *testing.T) {
 			ok:          true,
 			BufferSize:  100,
 		},
+		{ // 8
+			argString:   `<prog> -q 5 -s "hi" https://www.test.com`,
+			SearchTerms: []string{"hi"},
+			BaseURL:     "https://www.test.com",
+			ok:          true,
+			QuerySec:    5,
+		},
 		{
 			argString:   `<prog> -v -s "hi" -w 100 -s "there" https://www.test.com`,
 			SearchTerms: []string{"hi", "there"},
@@ -87,7 +95,7 @@ func TestGetOptions(t *testing.T) {
 			HTTPWorkers: 100,
 		},
 		{
-			argString:   `<prog> -v -s "hi" -z 5 -w 6 -x 7 -s "there" https://www.test.com`,
+			argString:   `<prog> -v -q 19 -s "hi" -z 5 -w 6 -x 7 -s "there" https://www.test.com`,
 			SearchTerms: []string{"hi", "there"},
 			Verbose:     true,
 			BaseURL:     "https://www.test.com",
@@ -95,6 +103,7 @@ func TestGetOptions(t *testing.T) {
 			BufferSize:  5,
 			Workers:     6,
 			HTTPWorkers: 7,
+			QuerySec:    19,
 		},
 	}
 	for i, tt := range tests {
@@ -109,6 +118,9 @@ func TestGetOptions(t *testing.T) {
 			}
 			if tt.HTTPWorkers == 0 {
 				tt.HTTPWorkers = HTTPWORKERS
+			}
+			if tt.QuerySec == 0 {
+				tt.QuerySec = HTTPRATESEC
 			}
 			if err != nil && tt.ok {
 				t.Errorf("unexpected error %v", err)
@@ -138,6 +150,9 @@ func TestGetOptions(t *testing.T) {
 			}
 			if got, want := HTTPWORKERS, tt.HTTPWorkers; got != want {
 				t.Errorf("http workers mismatch want %d got %d", got, want)
+			}
+			if got, want := HTTPRATESEC, tt.QuerySec; got != want {
+				t.Errorf("http rate/sec mismatch want %d got %d", got, want)
 			}
 			if got, want := options.Args.BaseURL, tt.BaseURL; got != want {
 				t.Errorf("baseurl mismatch want %s got %s", got, want)

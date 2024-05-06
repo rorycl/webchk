@@ -26,9 +26,10 @@ var errorForOSExit = errors.New("osexit")
 type Options struct {
 	SearchTerms []string `short:"s" long:"searchterm" required:"true" description:"search terms, can be specified more than once"`
 	Verbose     bool     `short:"v" long:"verbose" description:"set verbose output"`
+	QuerySec    int      `short:"q" long:"querysec" description:"queries per second" default:"10"`
 	BufferSize  int      `short:"z" long:"buffersize" description:"size of links buffer" default:"2500"`
 	Workers     int      `short:"w" long:"workers" description:"number of goroutine workers" default:"8"`
-	HTTPWorkers int      `short:"x" long:"httpworkers" description:"number of http workers" default:"16"`
+	HTTPWorkers int      `short:"x" long:"httpworkers" description:"number of http workers" default:"8"`
 	Args        struct {
 		BaseURL string `description:"base url to search"`
 	} `positional-args:"yes" required:"yes"`
@@ -56,6 +57,9 @@ func getOptions() (Options, error) {
 	if options.HTTPWorkers > 0 && options.HTTPWorkers != HTTPWORKERS {
 		HTTPWORKERS = options.HTTPWorkers
 	}
+	if options.QuerySec > 0 && options.QuerySec != HTTPRATESEC {
+		HTTPRATESEC = options.QuerySec
+	}
 	return options, nil
 }
 
@@ -82,12 +86,10 @@ func printResults(options Options, results <-chan Result) {
 				continue
 			}
 		}
-
-		// print url if vebose
+		// print url if verbose
 		if options.Verbose {
 			fmt.Fprintf(output, "%s\n", r.url)
 		}
-
 		// matches
 		if len(r.matches) > 0 {
 			fmt.Fprintf(output, "%s\n", r.url)
