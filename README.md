@@ -5,10 +5,13 @@ terms.
 
 ```
 Usage:
-  webchk -s searchterm [-s searchterm]... <baseurl>
+  webchk -s "searchterm" [-s "searchterm"]... <baseurl>
 
 Look for one or more searchterms (typically constrained between double
 quotes) in a website starting at <baseurl>.
+
+The timeout should be specified as a go time.ParseDuration string, for
+example "1m30s". For no timeout, use a negative or "0s".
 
 Application Arguments:
 
@@ -18,6 +21,7 @@ Application Options:
   -s, --searchterm=  search terms, can be specified more than once
   -v, --verbose      set verbose output
   -q, --querysec=    queries per second (default: 10)
+  -t, --timeout=     program timeout (default: 2m)
   -z, --buffersize=  size of links buffer (default: 2500)
   -w, --workers=     number of goroutine workers (default: 8)
   -x, --httpworkers= number of http workers (default: 8)
