@@ -94,17 +94,12 @@ func followURLs(baseURL string) func(u string) bool {
 	}
 }
 
-// dispatcherContext is a context for rate limiting and signalling
-// completion to concurrent goroutines which can be overridden in
-// testing, for example with a timeout context.
-var dispatcherContext context.Context = context.Background()
-
 // Dispatcher is a function for launching worker goroutines to process
 // getURL functions to produce Results. Since the initial page(s)
 // produce more links than can be easily processed, a buffered channel
 // is used to store urls waiting to be processed. If the channel becomes
 // full the program will start to shut down.
-func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
+func Dispatcher(baseURL string, searchTerms []string, ctxTimeout time.Duration) <-chan Result {
 
 	if DISPATCHERTIMEOUT < HTTPTIMEOUT {
 		fmt.Println(ErrDispatchTimeoutTooSmall)
@@ -162,7 +157,15 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 
 	links := make(chan string, LINKBUFFERSIZE)
 	resultsOutput := make(chan Result)
-	ctx, cancel := context.WithCancel(dispatcherContext)
+
+	var ctx context.Context
+	var cancel context.CancelFunc
+	switch {
+	case ctxTimeout <= 0:
+		ctx, cancel = context.WithCancel(context.Background())
+	default:
+		ctx, cancel = context.WithTimeout(context.Background(), ctxTimeout)
+	}
 
 	results, linksFound := concurrentURLgetter(ctx, links)
 
@@ -185,7 +188,12 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 	go func() {
 		defer close(resultsOutput)
 		defer close(links)
-		defer cancel()
+		defer func() {
+			if err := ctx.Err(); err == context.DeadlineExceeded {
+				fmt.Printf("deadline of %s exceeded. quitting...\n", ctxTimeout)
+			}
+			cancel()
+		}()
 		for {
 			select {
 			case hereLinks, ok := <-linksFound:

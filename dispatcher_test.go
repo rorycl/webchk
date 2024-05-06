@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"math/rand/v2"
 	"strings"
@@ -93,7 +92,8 @@ func TestDispatcher(t *testing.T) {
 
 	resultCollector := func() int {
 		i := 0
-		for range Dispatcher("https://example.com", []string{}) {
+		timeout := time.Duration(0)
+		for range Dispatcher("https://example.com", []string{}, timeout) {
 			i++
 		}
 		return i
@@ -175,13 +175,13 @@ func TestDispatcher(t *testing.T) {
 			resultNo:       7,
 		},
 		{ // 8
-			// fails with not enough room in the buffer after about 33
-			// items
+			// fails with not enough room in the buffer after about
+			// 26/27 items
 			workers:        20,
 			linkbuffersize: 40,
 			links:          prefixerRandom(3), // keep generating new links
 			resultChk:      gt,                // gt means greater than
-			resultNo:       28,                // more than this number expected
+			resultNo:       27,                // more than this number expected
 		},
 	}
 
@@ -227,15 +227,9 @@ func TestRateLimit(t *testing.T) {
 	}
 
 	resultCollectorTO := func(ms int, t *testing.T) int {
-		// override dispatcher dispatcherContext.Context
-		ctx, cancel := context.WithTimeout(
-			context.Background(),
-			time.Millisecond*time.Duration(ms),
-		)
-		defer cancel()
-		dispatcherContext = ctx
+		timeout := time.Millisecond * time.Duration(ms)
 		i := 0
-		for range Dispatcher("https://example.com", []string{}) {
+		for range Dispatcher("https://example.com", []string{}, timeout) {
 			i++
 		}
 		return i
