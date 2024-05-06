@@ -5,15 +5,19 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	flags "github.com/jessevdk/go-flags"
 )
 
 // Usage sets out the program usage
-const Usage = `-s searchterm [-s searchterm]... <baseurl>
+const Usage = `-s "searchterm" [-s "searchterm"]... <baseurl>
 
 Look for one or more searchterms (typically constrained between double
 quotes) in a website starting at <baseurl>.
+
+The timeout should be specified as a go time.ParseDuration string, for
+example "1m30s". For no timeout, use a negative or "0s".
 
 Application Arguments:
 
@@ -24,12 +28,13 @@ var errorForOSExit = errors.New("osexit")
 
 // Options are the command line options
 type Options struct {
-	SearchTerms []string `short:"s" long:"searchterm" required:"true" description:"search terms, can be specified more than once"`
-	Verbose     bool     `short:"v" long:"verbose" description:"set verbose output"`
-	QuerySec    int      `short:"q" long:"querysec" description:"queries per second" default:"10"`
-	BufferSize  int      `short:"z" long:"buffersize" description:"size of links buffer" default:"2500"`
-	Workers     int      `short:"w" long:"workers" description:"number of goroutine workers" default:"8"`
-	HTTPWorkers int      `short:"x" long:"httpworkers" description:"number of http workers" default:"8"`
+	SearchTerms []string      `short:"s" long:"searchterm" required:"true" description:"search terms, can be specified more than once"`
+	Verbose     bool          `short:"v" long:"verbose" description:"set verbose output"`
+	QuerySec    int           `short:"q" long:"querysec" description:"queries per second" default:"10"`
+	Timeout     time.Duration `short:"t" long:"timeout" description:"program timeout" default:"2m"`
+	BufferSize  int           `short:"z" long:"buffersize" description:"size of links buffer" default:"2500"`
+	Workers     int           `short:"w" long:"workers" description:"number of goroutine workers" default:"8"`
+	HTTPWorkers int           `short:"x" long:"httpworkers" description:"number of http workers" default:"8"`
 	Args        struct {
 		BaseURL string `description:"base url to search"`
 	} `positional-args:"yes" required:"yes"`
@@ -106,6 +111,6 @@ func main() {
 	if errors.Is(errorForOSExit, err) {
 		os.Exit(1)
 	}
-	results := Dispatcher(options.Args.BaseURL, options.SearchTerms)
+	results := Dispatcher(options.Args.BaseURL, options.SearchTerms, options.Timeout)
 	printResults(options, results)
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 )
@@ -20,6 +21,7 @@ func TestGetOptions(t *testing.T) {
 		BaseURL     string
 		BufferSize  int
 		QuerySec    int
+		Timeout     string // valid time.ParseDuration string needed
 		HTTPWorkers int
 		Workers     int
 		ok          bool
@@ -79,6 +81,13 @@ func TestGetOptions(t *testing.T) {
 			QuerySec:    5,
 		},
 		{
+			argString:   `<prog> -t 3m20s -s "hi" https://www.test.com`,
+			SearchTerms: []string{"hi"},
+			BaseURL:     "https://www.test.com",
+			ok:          true,
+			Timeout:     "3m20s",
+		},
+		{
 			argString:   `<prog> -v -s "hi" -w 100 -s "there" https://www.test.com`,
 			SearchTerms: []string{"hi", "there"},
 			Verbose:     true,
@@ -95,7 +104,7 @@ func TestGetOptions(t *testing.T) {
 			HTTPWorkers: 100,
 		},
 		{
-			argString:   `<prog> -v -q 19 -s "hi" -z 5 -w 6 -x 7 -s "there" https://www.test.com`,
+			argString:   `<prog> -v -t 1h20m10s -q 19 -s "hi" -z 5 -w 6 -x 7 -s "there" https://www.test.com`,
 			SearchTerms: []string{"hi", "there"},
 			Verbose:     true,
 			BaseURL:     "https://www.test.com",
@@ -104,12 +113,14 @@ func TestGetOptions(t *testing.T) {
 			Workers:     6,
 			HTTPWorkers: 7,
 			QuerySec:    19,
+			Timeout:     "1h20m10s",
 		},
 	}
 	for i, tt := range tests {
 		t.Run(fmt.Sprintf("test_%d", i), func(t *testing.T) {
 			os.Args = strings.Fields(tt.argString)
 			options, err := getOptions()
+			var timeout time.Duration
 			if tt.BufferSize == 0 {
 				tt.BufferSize = LINKBUFFERSIZE
 			}
@@ -121,6 +132,15 @@ func TestGetOptions(t *testing.T) {
 			}
 			if tt.QuerySec == 0 {
 				tt.QuerySec = HTTPRATESEC
+			}
+			if tt.Timeout != "" {
+				var err error
+				timeout, err = time.ParseDuration(tt.Timeout)
+				if err != nil {
+					t.Fatalf("invalid timeout %s %v", tt.Timeout, err)
+				}
+			} else {
+				timeout, _ = time.ParseDuration("2m") // default
 			}
 			if err != nil && tt.ok {
 				t.Errorf("unexpected error %v", err)
@@ -153,6 +173,9 @@ func TestGetOptions(t *testing.T) {
 			}
 			if got, want := HTTPRATESEC, tt.QuerySec; got != want {
 				t.Errorf("http rate/sec mismatch want %d got %d", got, want)
+			}
+			if got, want := options.Timeout, timeout; got != want {
+				t.Errorf("timeout mismatch want %v got %v", got, want)
 			}
 			if got, want := options.Args.BaseURL, tt.BaseURL; got != want {
 				t.Errorf("baseurl mismatch want %s got %s", got, want)
