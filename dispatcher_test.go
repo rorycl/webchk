@@ -1,8 +1,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"strings"
 	"testing"
 	"time"
@@ -45,39 +46,39 @@ func TestFollowURLs(t *testing.T) {
 	}
 }
 
+// linkMaker is a generalised way of making links
+type linkMaker func() []string
+
+// prefixer builds urls from strings to fill links
+func prefixer(s ...string) linkMaker {
+	x := make([]string, len(s))
+	for i := range s {
+		x[i] = "https://example.com/" + s[i]
+	}
+	return func() []string {
+		return x
+	}
+}
+
+// prefixerRandom makes links with a randomish url suffix
+func prefixerRandom(n int) linkMaker {
+	return func() []string {
+		var s = make([]string, n)
+		for i := range n {
+			s[i] = "https://example.com/" + fmt.Sprintf("%d", rand.Int()/1e14)
+		}
+		return s
+	}
+}
+
 func TestDispatcher(t *testing.T) {
 
 	// HTTPTIMEOUT reset
 	httpMS := 20
 	HTTPTIMEOUT = (time.Millisecond * time.Duration(httpMS))
 	dispatchMS := 25
+	HTTPRATESEC = 100000 // effectively ignore the rate limiter
 	// DISPATCHERTIMEOUT set below
-
-	// getURLer is an indirector: see dispatcher.go
-	type linkMaker func() []string
-
-	// build urls from strings to fill links
-	prefixer := func(s ...string) linkMaker {
-		x := make([]string, len(s))
-		for i := range s {
-			x[i] = "https://example.com/" + s[i]
-		}
-		return func() []string {
-			return x
-		}
-	}
-
-	// fixed random number source to fill links
-	prefixerRandom := func(n int) linkMaker {
-		var rns = rand.New(rand.NewSource(1))
-		return func() []string {
-			var s = make([]string, n)
-			for i := range n {
-				s[i] = "https://example.com/" + fmt.Sprintf("%d", rns.Int()/1e14)
-			}
-			return s
-		}
-	}
 
 	var links linkMaker
 	getURLer = func(url string, searchTerms []string) (Result, []string) {
@@ -105,11 +106,6 @@ func TestDispatcher(t *testing.T) {
 	gt := func(i, j int) bool {
 		return i > j
 	}
-	/*
-		gte := func(i, j int) bool {
-			return i >= j
-		}
-	*/
 
 	tests := []struct {
 		workers        int
@@ -205,6 +201,110 @@ func TestDispatcher(t *testing.T) {
 			resultNo := resultCollector()
 			if got, want := resultNo, tt.resultNo; !tt.resultChk(resultNo, tt.resultNo) {
 				t.Errorf("got %d want %d results", got, want)
+			}
+		})
+	}
+}
+
+// TestRateLimit tests rate limits
+func TestRateLimit(t *testing.T) {
+
+	httpMS := 20
+	HTTPTIMEOUT = (time.Millisecond * time.Duration(httpMS))
+	dispatchMS := 25
+	DISPATCHERTIMEOUT = (time.Millisecond * time.Duration(dispatchMS))
+	HTTPRATESEC = 1 // reset below
+
+	var links linkMaker
+	getURLer = func(url string, searchTerms []string) (Result, []string) {
+		time.Sleep(5 * time.Millisecond)
+		l := links()
+		return Result{
+			url:     url,
+			status:  200,
+			matches: []SearchMatch{},
+		}, l
+	}
+
+	resultCollectorTO := func(ms int, t *testing.T) int {
+		// override dispatcher dispatcherContext.Context
+		ctx, cancel := context.WithTimeout(
+			context.Background(),
+			time.Millisecond*time.Duration(ms),
+		)
+		defer cancel()
+		dispatcherContext = ctx
+		i := 0
+		for range Dispatcher("https://example.com", []string{}) {
+			i++
+		}
+		return i
+	}
+
+	LINKBUFFERSIZE = 200
+
+	// note that each fake http request takes 5ms
+	tests := []struct {
+		links       linkMaker
+		workers     int // no of GOWORKERS
+		timeoutMS   int // milliseconds
+		rateSec     int // num/sec
+		resultAbout int
+	}{
+		{ // 0
+			links:       prefixerRandom(2), // keep generating new links
+			workers:     1,
+			timeoutMS:   110,
+			rateSec:     200, // 5ms per call
+			resultAbout: 20,
+		},
+		{ // 1
+			links:       prefixerRandom(2), // keep generating new links
+			workers:     2,
+			timeoutMS:   110,
+			rateSec:     200, // 5ms per call
+			resultAbout: 20,  // 20 to 21 results
+		},
+		{ // 2
+			links:       prefixerRandom(2), // keep generating new links
+			workers:     1,
+			timeoutMS:   105,
+			rateSec:     50, // 20ms per call
+			resultAbout: 5,  //
+		},
+		{ // 3
+			links:       prefixerRandom(2), // keep generating new links
+			workers:     2,
+			timeoutMS:   105,
+			rateSec:     50, // 20ms per call
+			resultAbout: 5,  // 5ish
+		},
+		{ // 4
+			links:       prefixerRandom(1), // keep generating new links
+			workers:     3,
+			timeoutMS:   100,
+			rateSec:     100, // 10ms per call
+			resultAbout: 10,  // 10 to 12 results
+		},
+		{ // 5
+			links:       prefixerRandom(2), // keep generating new links
+			workers:     100,
+			timeoutMS:   102,
+			rateSec:     10, // 100ms per call
+			resultAbout: 1,  // 1
+		},
+	}
+
+	for i, tt := range tests {
+		// not parallel safe due to global use of links
+		t.Run(fmt.Sprintf("test %d", i), func(t *testing.T) {
+			// defer goleak.VerifyNone(t)
+			HTTPRATESEC = tt.rateSec
+			GOWORKERS = tt.workers
+			links = tt.links
+			resultNo := resultCollectorTO(tt.timeoutMS, t)
+			if got, want := resultNo, tt.resultAbout; got < want || got > (want+5) {
+				t.Errorf("got %d want >= %d results", got, want)
 			}
 		})
 	}

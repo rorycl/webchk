@@ -9,12 +9,15 @@ package main
 // "Concurrency in Go".
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 // linkError is a type for sentinel errors
@@ -32,17 +35,22 @@ const (
 )
 
 var (
-	// GOWORKERS is the number of worker goroutines to start
+	// GOWORKERS is the number of worker goroutines to start processing
+	// http queries
 	GOWORKERS = 8
 	// LINKBUFFERSIZE is the size of the link buffer during processing
 	LINKBUFFERSIZE = 2500
-	// HTTPWORKERS is the number of concurrent web queries to run
-	HTTPWORKERS = 16
+	// HTTPWORKERS is the number of concurrent web queries to run; this
+	// doesn't make sense to make much less than GOWORKERS
+	HTTPWORKERS = 8
+	// HTTPRATESEC is the rate of http requests to process per second
+	// across all GOWORKERS
+	HTTPRATESEC = 10
 	// HTTPTIMEOUT is the longest a web connection will stay open
-	HTTPTIMEOUT time.Duration = 2500 * time.Millisecond
+	HTTPTIMEOUT time.Duration = 1750 * time.Millisecond
 	// DISPATCHERTIMEOUT is how long the dispatcher will wait for
 	// results. This is slightly longer than HTTPTIMEOUT
-	DISPATCHERTIMEOUT time.Duration = 2750 * time.Millisecond
+	DISPATCHERTIMEOUT time.Duration = 1800 * time.Millisecond
 
 	// url suffixes to skip
 	URLSuffixesToSkip = []string{".png", ".jpg", ".jpeg", ".heic", ".svg"}
@@ -85,6 +93,8 @@ func followURLs(baseURL string) func(u string) bool {
 	}
 }
 
+var dispatcherContext context.Context = context.Background()
+
 // Dispatcher is a function for launching worker goroutines to process
 // getURL functions to produce Results. Since the initial page(s)
 // produce more links than can be easily processed, a buffered channel is
@@ -97,11 +107,15 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 		fmt.Println(ErrDispatchTimeoutTooSmall)
 	}
 
-	parallelURLgetter := func(inputURLs <-chan string, done <-chan struct{}) (
+	concurrentURLgetter := func(inputURLs <-chan string, done <-chan struct{}) (
 		<-chan Result, <-chan []string,
 	) {
 		results := make(chan Result)
 		outputLinks := make(chan []string)
+
+		// use the x/time/rate token bucket rate limiter
+		rateLimit := rate.NewLimiter(rate.Limit(HTTPRATESEC), 1)
+		ctx, cancel := context.WithCancel(dispatcherContext)
 
 		var wg sync.WaitGroup
 		wg.Add(GOWORKERS)
@@ -112,7 +126,13 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 					select {
 					case <-done:
 						return
+					case <-ctx.Done():
+						return
 					case url := <-inputURLs:
+						err := rateLimit.Wait(ctx)
+						if err != nil {
+							return // ctx timeout
+						}
 						result, links := getURLer(url, searchTerms)
 						// done checks for each send of the results from
 						// getURLer are needed as getURLer may take some
@@ -134,6 +154,7 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 		}
 		go func() {
 			wg.Wait()
+			cancel()
 			close(results)
 			close(outputLinks)
 		}()
@@ -144,7 +165,7 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 	done := make(chan struct{})
 	resultsOutput := make(chan Result)
 
-	results, linksFound := parallelURLgetter(links, done)
+	results, linksFound := concurrentURLgetter(links, done)
 
 	follow := followURLs(baseURL)
 	links <- baseURL
@@ -162,8 +183,11 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 		defer close(links)
 		for {
 			select {
-			case hereLinks := <-linksFound:
-				toResetter() // reset timeout
+			case hereLinks, ok := <-linksFound:
+				if !ok {
+					close(done)
+					return
+				}
 				for _, l := range hereLinks {
 					if !follow(l) {
 						continue
@@ -176,7 +200,11 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 						return
 					}
 				}
-			case r := <-results:
+			case r, ok := <-results:
+				if !ok {
+					close(done)
+					return
+				}
 				toResetter() // reset timeout
 				if r.status == http.StatusTooManyRequests {
 					fmt.Println("too many requests error. quitting...")
@@ -185,6 +213,9 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 				}
 				resultsOutput <- r
 			case <-timeout.C:
+				close(done)
+				return
+			case <-dispatcherContext.Done():
 				close(done)
 				return
 			}
