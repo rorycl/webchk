@@ -3,9 +3,6 @@
 A Go command to recursively search a website for case insensitive search
 terms.
 
-The default buffer of links to follow is presently fixed at 25,000; more
-than that will exit the program.
-
 ```
 Usage:
   webchk -s searchterm [-s searchterm]... <baseurl>
@@ -20,15 +17,17 @@ Application Arguments:
 Application Options:
   -s, --searchterm=  search terms, can be specified more than once
   -v, --verbose      set verbose output
+  -q, --querysec=    queries per second (default: 10)
   -z, --buffersize=  size of links buffer (default: 2500)
   -w, --workers=     number of goroutine workers (default: 8)
-  -x, --httpworkers= number of http workers (default: 16)
+  -x, --httpworkers= number of http workers (default: 8)
 
 Help Options:
   -h, --help         Show this help message
 
 Arguments:
   BaseURL:           base url to search
+
 ```
 
 Example:
