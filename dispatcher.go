@@ -70,8 +70,9 @@ var (
 
 // followURLs is a closure which returns true if a url has not been seen
 // before and the provided url matches the baseURL and does not match
-// one of the provided URLSuffixes. Due to containment, this does not
-// use sync.Map
+// one of the provided URLSuffixes. followURLs should only used in a
+// fully contained manner (by a single func) and therefore does not need
+// to be protected by a synchronisation primitive such as sync.Map.
 func followURLs(baseURL string) func(u string) bool {
 	uniqueURLs := map[string]bool{}
 	uniqueURLs[baseURL] = true
@@ -93,21 +94,23 @@ func followURLs(baseURL string) func(u string) bool {
 	}
 }
 
+// dispatcherContext is a context for rate limiting and signalling
+// completion to concurrent goroutines which can be overridden in
+// testing, for example with a timeout context.
 var dispatcherContext context.Context = context.Background()
 
 // Dispatcher is a function for launching worker goroutines to process
 // getURL functions to produce Results. Since the initial page(s)
-// produce more links than can be easily processed, a buffered channel is
-// used to store urls waiting to be processed. If the channel becomes
-// full additional urls are dropped and the program will start to shut
-// down.
+// produce more links than can be easily processed, a buffered channel
+// is used to store urls waiting to be processed. If the channel becomes
+// full the program will start to shut down.
 func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 
 	if DISPATCHERTIMEOUT < HTTPTIMEOUT {
 		fmt.Println(ErrDispatchTimeoutTooSmall)
 	}
 
-	concurrentURLgetter := func(inputURLs <-chan string, done <-chan struct{}) (
+	concurrentURLgetter := func(ctx context.Context, inputURLs <-chan string) (
 		<-chan Result, <-chan []string,
 	) {
 		results := make(chan Result)
@@ -115,7 +118,6 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 
 		// use the x/time/rate token bucket rate limiter
 		rateLimit := rate.NewLimiter(rate.Limit(HTTPRATESEC), 1)
-		ctx, cancel := context.WithCancel(dispatcherContext)
 
 		var wg sync.WaitGroup
 		wg.Add(GOWORKERS)
@@ -124,8 +126,6 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 				defer wg.Done()
 				for {
 					select {
-					case <-done:
-						return
 					case <-ctx.Done():
 						return
 					case url := <-inputURLs:
@@ -139,12 +139,12 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 						// time. The guards are to stop sends causing
 						// goroutine leaks.
 						select {
-						case <-done:
+						case <-ctx.Done():
 							return
 						case results <- result:
 						}
 						select {
-						case <-done:
+						case <-ctx.Done():
 							return
 						case outputLinks <- links:
 						}
@@ -154,7 +154,6 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 		}
 		go func() {
 			wg.Wait()
-			cancel()
 			close(results)
 			close(outputLinks)
 		}()
@@ -162,14 +161,15 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 	}
 
 	links := make(chan string, LINKBUFFERSIZE)
-	done := make(chan struct{})
 	resultsOutput := make(chan Result)
+	ctx, cancel := context.WithCancel(dispatcherContext)
 
-	results, linksFound := concurrentURLgetter(links, done)
+	results, linksFound := concurrentURLgetter(ctx, links)
 
 	follow := followURLs(baseURL)
-	links <- baseURL
+	links <- baseURL // start links with baseurl
 
+	// define timeout and timeout reset function
 	timeout := time.NewTimer(DISPATCHERTIMEOUT)
 	toResetter := func() {
 		if !timeout.Stop() {
@@ -178,14 +178,18 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 		timeout.Reset(DISPATCHERTIMEOUT)
 	}
 
+	// this func is the main coordinator of Dispatcher, putting incoming
+	// links from concurrentURLgetter onto the links buffered channel if
+	// they have not already been seen by follow() and sending results
+	// to the resultsOutput channel for consumption by the user.
 	go func() {
 		defer close(resultsOutput)
 		defer close(links)
+		defer cancel()
 		for {
 			select {
 			case hereLinks, ok := <-linksFound:
 				if !ok {
-					close(done)
 					return
 				}
 				for _, l := range hereLinks {
@@ -196,27 +200,20 @@ func Dispatcher(baseURL string, searchTerms []string) <-chan Result {
 					case links <- l:
 					default:
 						fmt.Println("no space left on buffer")
-						close(done)
 						return
 					}
 				}
 			case r, ok := <-results:
 				if !ok {
-					close(done)
 					return
 				}
 				toResetter() // reset timeout
 				if r.status == http.StatusTooManyRequests {
 					fmt.Println("too many requests error. quitting...")
-					close(done)
 					return
 				}
 				resultsOutput <- r
 			case <-timeout.C:
-				close(done)
-				return
-			case <-dispatcherContext.Done():
-				close(done)
 				return
 			}
 		}
