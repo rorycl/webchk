@@ -24,13 +24,15 @@ func TestFollowURLs(t *testing.T) {
 		ok  bool
 	}{
 		// beware order is important
-		{"http://x.com", false},  // base url should fail
-		{"http://x.com/", false}, // base url should fail with slash
-		{"http://x.com/ok/", true},
-		{"http://x.com/ok/", false},   // seen before
-		{"http://x.com/1.svg", false}, // svg
-		{"http://x.com/1.png", false}, // png
-		{"http://x.com/uniqe", true},  // unique
+		{"http://x.com", false},        // base url should fail
+		{"http://x.com/", false},       // base url should fail with slash
+		{"http://n.com/notok/", false}, // wrong base
+		{"http://x.com/ok/", true},     // first time seen
+		{"http://x.com/ok/", false},    // seen before
+		{"http://x.com/ok", false},     // seen before (without slash)
+		{"http://x.com/1.svg", false},  // svg
+		{"http://x.com/1.png", false},  // png
+		{"http://x.com/unique", true},  // unique
 	}
 
 	// init

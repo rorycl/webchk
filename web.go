@@ -117,6 +117,7 @@ func getLinks(body []byte, url *url.URL) ([]string, error) {
 					}
 					linkURL.RawQuery, linkURL.Fragment = "", "" // remove items after path
 					link := linkURL.String()
+					link = strings.TrimSpace(strings.TrimSuffix(link, "/"))
 					links = append(links, link)
 				}
 			}

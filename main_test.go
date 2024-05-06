@@ -232,7 +232,6 @@ http://example.com/nomatches
 http://example.com/403 : status 403
 http://example.com/unknown : error unknown error
 http://example.com/matches
-http://example.com/matches
 > line:   2 match: hi
 > line:  99 match: there
 processed 5 pages

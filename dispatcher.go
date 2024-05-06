@@ -77,7 +77,7 @@ func followURLs(baseURL string) func(u string) bool {
 	uniqueURLs := map[string]bool{}
 	uniqueURLs[baseURL] = true
 	return func(u string) bool {
-		u = strings.TrimSuffix(u, "/")
+		u = strings.TrimSuffix(u, "/") // shouldn't be necessary
 		if !strings.Contains(u, baseURL) {
 			return false
 		}
@@ -189,7 +189,7 @@ func Dispatcher(baseURL string, searchTerms []string, ctxTimeout time.Duration) 
 		defer close(resultsOutput)
 		defer close(links)
 		defer func() {
-			if err := ctx.Err(); err == context.DeadlineExceeded {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				fmt.Printf("deadline of %s exceeded. quitting...\n", ctxTimeout)
 			}
 			cancel()

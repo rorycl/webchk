@@ -91,12 +91,10 @@ func printResults(options Options, results <-chan Result) {
 				continue
 			}
 		}
-		// print url if verbose
-		if options.Verbose {
+		switch {
+		case options.Verbose && len(r.matches) == 0:
 			fmt.Fprintf(output, "%s\n", r.url)
-		}
-		// matches
-		if len(r.matches) > 0 {
+		case len(r.matches) > 0:
 			fmt.Fprintf(output, "%s\n", r.url)
 			for _, m := range r.matches {
 				fmt.Fprintf(output, "> %s\n", m)
