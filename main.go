@@ -13,11 +13,14 @@ import (
 // Usage sets out the program usage
 const Usage = `-s "searchterm" [-s "searchterm"]... <baseurl>
 
-Look for one or more searchterms (typically constrained between double
-quotes) in a website starting at <baseurl>.
+Look for one or more case-insensitive search terms (typically
+constrained between double quotes) in a website starting at <baseurl>.
 
 The timeout should be specified as a go time.ParseDuration string, for
-example "1m30s". For no timeout, use a negative or "0s".
+example "1m30s". For no timeout, use a negative duration or "0s".
+
+The program will exit early if the link buffer becomes full, if it
+encounters a "too many requests" 429 error or if it times out.
 
 Application Arguments:
 
