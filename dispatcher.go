@@ -55,7 +55,7 @@ var (
 	// url suffixes to skip
 	URLSuffixesToSkip = []string{".png", ".jpg", ".jpeg", ".heic", ".svg"}
 	// getURLer indirects getURL for testing
-	getURLer func(url string, searchTerms []string) (Result, []string) = getURL
+	getURLer func(url, referrer string, searchTerms []string) (Result, []string) = getURL
 )
 
 var (
@@ -105,11 +105,15 @@ func Dispatcher(baseURL string, searchTerms []string, ctxTimeout time.Duration) 
 		fmt.Println(ErrDispatchTimeoutTooSmall)
 	}
 
-	concurrentURLgetter := func(ctx context.Context, inputURLs <-chan string) (
-		<-chan Result, <-chan []string,
+	type refLink struct {
+		url, referrer string
+	}
+
+	concurrentURLgetter := func(ctx context.Context, inputURLs <-chan refLink) (
+		<-chan Result, <-chan []refLink,
 	) {
 		results := make(chan Result)
-		outputLinks := make(chan []string)
+		outputLinks := make(chan []refLink)
 
 		// use the x/time/rate token bucket rate limiter
 		rateLimit := rate.NewLimiter(rate.Limit(HTTPRATESEC), 1)
@@ -123,12 +127,12 @@ func Dispatcher(baseURL string, searchTerms []string, ctxTimeout time.Duration) 
 					select {
 					case <-ctx.Done():
 						return
-					case url := <-inputURLs:
+					case rl := <-inputURLs:
 						err := rateLimit.Wait(ctx)
 						if err != nil {
 							return // ctx timeout
 						}
-						result, links := getURLer(url, searchTerms)
+						result, links := getURLer(rl.url, rl.referrer, searchTerms)
 						// done checks for each send of the results from
 						// getURLer are needed as getURLer may take some
 						// time. The guards are to stop sends causing
@@ -138,10 +142,14 @@ func Dispatcher(baseURL string, searchTerms []string, ctxTimeout time.Duration) 
 							return
 						case results <- result:
 						}
+						refLinks := []refLink{}
+						for _, l := range links {
+							refLinks = append(refLinks, refLink{l, result.url})
+						}
 						select {
 						case <-ctx.Done():
 							return
-						case outputLinks <- links:
+						case outputLinks <- refLinks:
 						}
 					}
 				}
@@ -155,7 +163,7 @@ func Dispatcher(baseURL string, searchTerms []string, ctxTimeout time.Duration) 
 		return results, outputLinks
 	}
 
-	links := make(chan string, LINKBUFFERSIZE)
+	links := make(chan refLink, LINKBUFFERSIZE)
 	resultsOutput := make(chan Result)
 
 	var ctx context.Context
@@ -170,7 +178,7 @@ func Dispatcher(baseURL string, searchTerms []string, ctxTimeout time.Duration) 
 	results, linksFound := concurrentURLgetter(ctx, links)
 
 	follow := followURLs(baseURL)
-	links <- baseURL // start links with baseurl
+	links <- refLink{url: baseURL, referrer: "/"} // start links with baseurl
 
 	// define timeout and timeout reset function
 	timeout := time.NewTimer(DISPATCHERTIMEOUT)
@@ -201,7 +209,7 @@ func Dispatcher(baseURL string, searchTerms []string, ctxTimeout time.Duration) 
 					return
 				}
 				for _, l := range hereLinks {
-					if !follow(l) {
+					if !follow(l.url) {
 						continue
 					}
 					select {

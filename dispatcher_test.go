@@ -82,7 +82,7 @@ func TestDispatcher(t *testing.T) {
 	// DISPATCHERTIMEOUT set below
 
 	var links linkMaker
-	getURLer = func(url string, searchTerms []string) (Result, []string) {
+	getURLer = func(url, referrer string, searchTerms []string) (Result, []string) {
 		time.Sleep(HTTPTIMEOUT - 200) // just less than the http timeout
 		l := links()
 		return Result{
@@ -218,7 +218,7 @@ func TestRateLimit(t *testing.T) {
 	HTTPRATESEC = 1 // reset below
 
 	var links linkMaker
-	getURLer = func(url string, searchTerms []string) (Result, []string) {
+	getURLer = func(url, referrer string, searchTerms []string) (Result, []string) {
 		time.Sleep(5 * time.Millisecond)
 		l := links()
 		return Result{
