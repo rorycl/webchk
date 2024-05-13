@@ -197,9 +197,10 @@ func TestPrintResults(t *testing.T) {
 			err: NonHTMLPageType,
 		}
 		r <- Result{
-			url:    "http://example.com/403",
-			status: 403,
-			err:    StatusNotOk,
+			referrer: "/referrer",
+			url:      "http://example.com/403",
+			status:   403,
+			err:      StatusNotOk,
 		}
 		r <- Result{
 			url:    "http://example.com/unknown",
@@ -229,7 +230,8 @@ func TestPrintResults(t *testing.T) {
 	want := `
 Commencing search of https://example.com:
 http://example.com/nomatches
-http://example.com/403 : status 403
+http://example.com/403
+- status 403 (from /referrer)
 http://example.com/unknown : error unknown error
 http://example.com/matches
 > line:   2 match: hi

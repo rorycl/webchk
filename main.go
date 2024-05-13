@@ -86,7 +86,7 @@ func printResults(options Options, results <-chan Result) {
 		case NonHTMLPageType:
 			continue
 		case StatusNotOk:
-			fmt.Fprintf(output, "%s : status %d\n", r.url, r.status)
+			fmt.Fprintf(output, "%s\n- status %d (from %s)\n", r.url, r.status, r.referrer)
 			continue
 		default:
 			if r.err != nil {
