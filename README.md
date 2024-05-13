@@ -1,17 +1,19 @@
 # webchk
 
-A Go command to recursively search a website for case insensitive search
-terms.
+A Go program to recursively search a website for search terms.
 
 ```
 Usage:
   webchk -s "searchterm" [-s "searchterm"]... <baseurl>
 
-Look for one or more searchterms (typically constrained between double
-quotes) in a website starting at <baseurl>.
+Look for one or more case-insensitive search terms (typically
+constrained between double quotes) in a website starting at <baseurl>.
 
 The timeout should be specified as a go time.ParseDuration string, for
-example "1m30s". For no timeout, use a negative or "0s".
+example "1m30s". For no timeout, use a negative duration or "0s".
+
+The program will exit early if the link buffer becomes full, if it
+encounters a "too many requests" 429 response or if it times out.
 
 Application Arguments:
 
@@ -33,6 +35,9 @@ Arguments:
   BaseURL:           base url to search
 
 ```
+
+Build the program using `make build` or `go build` (with go >= 1.22), or
+download a binary from [Releases](./releases/).
 
 Example:
 
@@ -61,4 +66,4 @@ https://slashdot.org/archive.pl
 ```
 
 
-Licensed under the [MIT Licence](LICENCE).
+Licensed under the [MIT Licence](./LICENCE).
