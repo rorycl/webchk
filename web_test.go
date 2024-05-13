@@ -271,7 +271,7 @@ func TestGetURL(t *testing.T) {
 				linkError = tt.linkError
 			}
 
-			result, _ := getURL(tt.url, tt.searchTerms)
+			result, _ := getURL(tt.url, "/referrer", tt.searchTerms)
 
 			if result.err != tt.result.err {
 				if !errors.Is(result.err, tt.result.err) {

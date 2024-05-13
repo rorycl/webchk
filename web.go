@@ -29,10 +29,10 @@ var (
 
 // Result is url result provided by a call to a web page
 type Result struct {
-	url     string        // full url
-	status  int           // http statuscode if not 200
-	matches []SearchMatch // search term matches from this URL
-	err     error
+	url, referrer string        // full url and referrer
+	status        int           // http statuscode if not 200
+	matches       []SearchMatch // search term matches from this URL
+	err           error
 }
 
 var (
@@ -56,10 +56,11 @@ func (s SearchMatch) String() string {
 // get gets a URL, reporting a status if not 200, extracts the links
 // from the page and reports if there are any matches to the
 // searchTerms.
-func getURL(url string, searchTerms []string) (Result, []string) {
+func getURL(url, referrer string, searchTerms []string) (Result, []string) {
 	r := Result{
-		url:     url,
-		matches: []SearchMatch{},
+		url:      url,
+		referrer: referrer,
+		matches:  []SearchMatch{},
 	}
 	links := []string{}
 
