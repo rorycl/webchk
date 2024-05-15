@@ -56,25 +56,13 @@ func getOptions() (Options, error) {
 		}
 		return options, errorForOSExit
 	}
-	if options.BufferSize > 0 && options.BufferSize != LINKBUFFERSIZE {
-		LINKBUFFERSIZE = options.BufferSize
-	}
-	if options.Workers > 0 && options.Workers != GOWORKERS {
-		GOWORKERS = options.Workers
-	}
-	if options.HTTPWorkers > 0 && options.HTTPWorkers != HTTPWORKERS {
-		HTTPWORKERS = options.HTTPWorkers
-	}
-	if options.QuerySec > 0 && options.QuerySec != HTTPRATESEC {
-		HTTPRATESEC = options.QuerySec
-	}
 	return options, nil
 }
 
 // output sets the io.Writer for output
 var output io.Writer = os.Stdout
 
-// printResults prints results
+// printResults prints results from a Dispatcher Result chan
 func printResults(options Options, results <-chan Result) {
 
 	fmt.Fprintf(output, "\nCommencing search of %s:\n", options.Args.BaseURL)
@@ -112,6 +100,21 @@ func main() {
 	if errors.Is(errorForOSExit, err) {
 		os.Exit(1)
 	}
-	results := Dispatcher(options.Args.BaseURL, options.SearchTerms, options.Timeout)
+	// make new httpClient
+	httpClient := NewGetClient(options.HTTPWorkers, HTTPTIMEOUT)
+	// initialise a dispatcher
+	d := NewDispatch(
+		options.Args.BaseURL,
+		options.Workers,
+		options.BufferSize,
+		options.QuerySec,
+		options.SearchTerms,
+		DISPATCHERTIMEOUT, // default
+		options.Timeout,
+		httpClient,
+	)
+	// receive channel from Dispatcher
+	results := d.Dispatcher()
+	// print results from channel
 	printResults(options, results)
 }

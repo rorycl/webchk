@@ -26,46 +26,46 @@ func TestGetOptions(t *testing.T) {
 		Workers     int
 		ok          bool
 	}{
-		{
+		{ // 0
 			argString: "<prog> -h",
 			ok:        false, // actually osexits
 		},
-		{
+		{ // 1
 			argString: `<prog> https://www.test.com`,
 			ok:        false,
 		},
-		{
+		{ // 2
 			argString:   `<prog> -s "hi" https://www.test.com`,
 			SearchTerms: []string{"hi"},
 			Verbose:     false,
 			BaseURL:     "https://www.test.com",
 			ok:          true,
 		},
-		{
+		{ // 3
 			argString:   `<prog> -s "hi" -s "there" https://www.test.com`,
 			SearchTerms: []string{"hi", "there"},
 			Verbose:     false,
 			BaseURL:     "https://www.test.com",
 			ok:          true,
 		},
-		{
+		{ // 4
 			argString:   `<prog> -v -s "hi" -s "there" https://www.test.com`,
 			SearchTerms: []string{"hi", "there"},
 			Verbose:     true,
 			BaseURL:     "https://www.test.com",
 			ok:          true,
 		},
-		{
+		{ // 5
 			// no base url
 			argString: `<prog> -v -s "hi" -s "there"`,
 			ok:        false,
 		},
-		{
+		{ // 6
 			// unknown flag
 			argString: `<prog> -n https://www.there.com`,
 			ok:        false,
 		},
-		{
+		{ // 7
 			argString:   `<prog> -v -s "hi" -z 100 -s "there" https://www.test.com`,
 			SearchTerms: []string{"hi", "there"},
 			Verbose:     true,
@@ -80,14 +80,14 @@ func TestGetOptions(t *testing.T) {
 			ok:          true,
 			QuerySec:    5,
 		},
-		{
+		{ // 9
 			argString:   `<prog> -t 3m20s -s "hi" https://www.test.com`,
 			SearchTerms: []string{"hi"},
 			BaseURL:     "https://www.test.com",
 			ok:          true,
 			Timeout:     "3m20s",
 		},
-		{
+		{ // 10
 			argString:   `<prog> -v -s "hi" -w 100 -s "there" https://www.test.com`,
 			SearchTerms: []string{"hi", "there"},
 			Verbose:     true,
@@ -95,7 +95,7 @@ func TestGetOptions(t *testing.T) {
 			ok:          true,
 			Workers:     100,
 		},
-		{
+		{ // 11
 			argString:   `<prog> -v -s "hi" -x 100 -s "there" https://www.test.com`,
 			SearchTerms: []string{"hi", "there"},
 			Verbose:     true,
@@ -103,7 +103,7 @@ func TestGetOptions(t *testing.T) {
 			ok:          true,
 			HTTPWorkers: 100,
 		},
-		{
+		{ // 12
 			argString:   `<prog> -v -t 1h20m10s -q 19 -s "hi" -z 5 -w 6 -x 7 -s "there" https://www.test.com`,
 			SearchTerms: []string{"hi", "there"},
 			Verbose:     true,
@@ -162,16 +162,16 @@ func TestGetOptions(t *testing.T) {
 			if got, want := options.Verbose, tt.Verbose; got != want {
 				t.Errorf("verbose mismatch want %t got %t", got, want)
 			}
-			if got, want := LINKBUFFERSIZE, tt.BufferSize; got != want {
+			if got, want := options.BufferSize, tt.BufferSize; got != want {
 				t.Errorf("link buffersize mismatch want %d got %d", got, want)
 			}
-			if got, want := GOWORKERS, tt.Workers; got != want {
+			if got, want := options.Workers, tt.Workers; got != want {
 				t.Errorf("workers mismatch want %d got %d", got, want)
 			}
-			if got, want := HTTPWORKERS, tt.HTTPWorkers; got != want {
+			if got, want := options.HTTPWorkers, tt.HTTPWorkers; got != want {
 				t.Errorf("http workers mismatch want %d got %d", got, want)
 			}
-			if got, want := HTTPRATESEC, tt.QuerySec; got != want {
+			if got, want := options.QuerySec, tt.QuerySec; got != want {
 				t.Errorf("http rate/sec mismatch want %d got %d", got, want)
 			}
 			if got, want := options.Timeout, timeout; got != want {
