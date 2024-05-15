@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"go.uber.org/goleak"
 )
 
@@ -72,33 +73,112 @@ func prefixerRandom(n int) linkMaker {
 	}
 }
 
+func TestNewDispatch(t *testing.T) {
+
+	tp := func(td string) time.Duration {
+		d, err := time.ParseDuration(td)
+		if err != nil {
+			t.Fatalf("time parsing error: %v", err)
+		}
+		return d
+	}
+
+	tests := []struct {
+		name               string
+		baseURL            string
+		workers            int
+		linkBufferSize     int
+		httpRateSec        int
+		searchTerms        []string
+		dispatcherTimeout  time.Duration
+		timeout            time.Duration
+		client             *getClient
+		wantWorkers        int
+		wantLinkBufferSize int
+		wantHttpRateSec    int
+	}{
+		{
+			name:               "check_defaults",
+			baseURL:            "https://example.com",
+			workers:            0,
+			linkBufferSize:     0,
+			httpRateSec:        0,
+			searchTerms:        []string{"hi"},
+			dispatcherTimeout:  DISPATCHERTIMEOUT,
+			timeout:            tp("2m"),
+			client:             &getClient{},
+			wantWorkers:        HTTPWORKERS,
+			wantLinkBufferSize: LINKBUFFERSIZE,
+			wantHttpRateSec:    HTTPRATESEC,
+		},
+		{
+			name:               "check_custom",
+			baseURL:            "https://example.com",
+			workers:            4,
+			linkBufferSize:     20_000,
+			httpRateSec:        195,
+			searchTerms:        []string{"hi", "there"},
+			dispatcherTimeout:  DISPATCHERTIMEOUT,
+			timeout:            tp("2m15s"),
+			client:             &getClient{},
+			wantWorkers:        4,
+			wantLinkBufferSize: 20_000,
+			wantHttpRateSec:    195,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := NewDispatch(
+				tt.baseURL,
+				tt.workers,
+				tt.linkBufferSize,
+				tt.httpRateSec,
+				tt.searchTerms,
+				tt.dispatcherTimeout,
+				tt.timeout,
+				tt.client,
+			)
+			if got, want := d.workers, tt.wantWorkers; got != want {
+				t.Errorf("workers got %v != want %v", got, want)
+			}
+			if got, want := d.linkBufferSize, tt.wantLinkBufferSize; got != want {
+				t.Errorf("buffersize got %v != want %v", got, want)
+			}
+			if got, want := d.httpRateSec, tt.wantHttpRateSec; got != want {
+				t.Errorf("ratesec got %v != want %v", got, want)
+			}
+			if diff := cmp.Diff(d.searchTerms, tt.searchTerms); diff != "" {
+				t.Errorf("searchterms diff %v", diff)
+			}
+			if got, want := d.dispatcherTimeout, tt.dispatcherTimeout; got != want {
+				t.Errorf("dispatcherTimeout got %v != want %v", got, want)
+			}
+			if got, want := d.ctxTimeout, tt.timeout; got != want {
+				t.Errorf("global timeout got %v != want %v", got, want)
+			}
+			// tt.client not of interest
+		})
+	}
+}
+
 func TestDispatcher(t *testing.T) {
 
-	// HTTPTIMEOUT reset
 	httpMS := 20
-	HTTPTIMEOUT = (time.Millisecond * time.Duration(httpMS))
+	httpTimeout := (time.Millisecond * time.Duration(httpMS))
 	dispatchMS := 25
-	HTTPRATESEC = 100000 // effectively ignore the rate limiter
-	// DISPATCHERTIMEOUT set below
+	httpRateSec := 100000 // effectively ignore the rate limiter
+	invocationTimeout := (time.Second * 2)
 
 	var links linkMaker
-	getURLer = func(url, referrer string, searchTerms []string) (Result, []string) {
-		time.Sleep(HTTPTIMEOUT - 200) // just less than the http timeout
+	getURLer := func(url, referrer string, searchTerms []string) (Result, []string) {
+		time.Sleep(httpTimeout - 200) // just less than the http timeout
 		l := links()
 		return Result{
 			url:     url,
 			status:  200,
 			matches: []SearchMatch{},
 		}, l
-	}
-
-	resultCollector := func() int {
-		i := 0
-		timeout := time.Duration(0)
-		for range Dispatcher("https://example.com", []string{}, timeout) {
-			i++
-		}
-		return i
 	}
 
 	type resultChecker func(i, j int) bool
@@ -115,7 +195,7 @@ func TestDispatcher(t *testing.T) {
 		links          linkMaker
 		resultChk      resultChecker
 		resultNo       int
-		dispatchMS     int // set the dispatcher
+		dispatchMS     int // set the dispatcher timeout if not thistest.dispatchMS
 	}{
 		{
 			workers:        1,
@@ -191,16 +271,30 @@ func TestDispatcher(t *testing.T) {
 		// not parallel safe due to global use of links
 		t.Run(fmt.Sprintf("test %d", i), func(t *testing.T) {
 			defer goleak.VerifyNone(t)
-			GOWORKERS = tt.workers
-			LINKBUFFERSIZE = tt.linkbuffersize
+			var timeout time.Duration
 			if tt.dispatchMS != 0 {
-				DISPATCHERTIMEOUT = time.Millisecond * time.Duration(tt.dispatchMS)
-			} else {
-				// default
-				DISPATCHERTIMEOUT = time.Millisecond * time.Duration(dispatchMS)
+				timeout = time.Millisecond * time.Duration(tt.dispatchMS)
+			} else { // default
+				timeout = time.Millisecond * time.Duration(dispatchMS)
 			}
 			links = tt.links
-			resultNo := resultCollector()
+
+			gc := NewGetClient(tt.workers, httpTimeout)
+			gc.getURL = getURLer
+
+			d := NewDispatch("https://example.com",
+				tt.workers,
+				tt.linkbuffersize,
+				httpRateSec,
+				[]string{},
+				timeout,
+				invocationTimeout,
+				gc,
+			)
+			resultNo := 0
+			for range d.Dispatcher() {
+				resultNo++
+			}
 			if got, want := resultNo, tt.resultNo; !tt.resultChk(resultNo, tt.resultNo) {
 				t.Errorf("got %d want %d results", got, want)
 			}
@@ -211,14 +305,8 @@ func TestDispatcher(t *testing.T) {
 // TestRateLimit tests rate limits
 func TestRateLimit(t *testing.T) {
 
-	httpMS := 20
-	HTTPTIMEOUT = (time.Millisecond * time.Duration(httpMS))
-	dispatchMS := 25
-	DISPATCHERTIMEOUT = (time.Millisecond * time.Duration(dispatchMS))
-	HTTPRATESEC = 1 // reset below
-
 	var links linkMaker
-	getURLer = func(url, referrer string, searchTerms []string) (Result, []string) {
+	getURLer := func(url, referrer string, searchTerms []string) (Result, []string) {
 		time.Sleep(5 * time.Millisecond)
 		l := links()
 		return Result{
@@ -228,77 +316,88 @@ func TestRateLimit(t *testing.T) {
 		}, l
 	}
 
-	resultCollectorTO := func(ms int, t *testing.T) int {
-		timeout := time.Millisecond * time.Duration(ms)
-		i := 0
-		for range Dispatcher("https://example.com", []string{}, timeout) {
-			i++
-		}
-		return i
-	}
-
-	LINKBUFFERSIZE = 200
-
 	// note that each fake http request takes 5ms
 	tests := []struct {
-		links       linkMaker
-		workers     int // no of GOWORKERS
-		timeoutMS   int // milliseconds
-		rateSec     int // num/sec
-		resultAbout int
+		links           linkMaker
+		workers         int // no of GOWORKERS
+		invokeTimeoutMS int // milliseconds
+		rateSec         int // num/sec
+		resultAbout     int
 	}{
 		{ // 0
-			links:       prefixerRandom(2), // keep generating new links
-			workers:     1,
-			timeoutMS:   110,
-			rateSec:     200, // 5ms per call
-			resultAbout: 20,
+			links:           prefixerRandom(2), // keep generating new links
+			workers:         1,
+			invokeTimeoutMS: 110,
+			rateSec:         200, // 5ms per call
+			resultAbout:     20,
 		},
 		{ // 1
-			links:       prefixerRandom(2), // keep generating new links
-			workers:     2,
-			timeoutMS:   110,
-			rateSec:     200, // 5ms per call
-			resultAbout: 20,  // 20 to 21 results
+			links:           prefixerRandom(2), // keep generating new links
+			workers:         2,
+			invokeTimeoutMS: 110,
+			rateSec:         200, // 5ms per call
+			resultAbout:     20,  // 20 to 21 results
 		},
 		{ // 2
-			links:       prefixerRandom(2), // keep generating new links
-			workers:     1,
-			timeoutMS:   105,
-			rateSec:     50, // 20ms per call
-			resultAbout: 5,  //
+			links:           prefixerRandom(2), // keep generating new links
+			workers:         1,
+			invokeTimeoutMS: 105,
+			rateSec:         50, // 20ms per call
+			resultAbout:     5,  //
 		},
 		{ // 3
-			links:       prefixerRandom(2), // keep generating new links
-			workers:     2,
-			timeoutMS:   105,
-			rateSec:     50, // 20ms per call
-			resultAbout: 5,  // 5ish
+			links:           prefixerRandom(2), // keep generating new links
+			workers:         2,
+			invokeTimeoutMS: 105,
+			rateSec:         50, // 20ms per call
+			resultAbout:     5,  // 5ish
 		},
 		{ // 4
-			links:       prefixerRandom(1), // keep generating new links
-			workers:     3,
-			timeoutMS:   100,
-			rateSec:     100, // 10ms per call
-			resultAbout: 10,  // 10 to 12 results
+			links:           prefixerRandom(1), // keep generating new links
+			workers:         3,
+			invokeTimeoutMS: 100,
+			rateSec:         100, // 10ms per call
+			resultAbout:     10,  // 10 to 12 results
 		},
 		{ // 5
-			links:       prefixerRandom(2), // keep generating new links
-			workers:     100,
-			timeoutMS:   102,
-			rateSec:     10, // 100ms per call
-			resultAbout: 1,  // 1
+			links:           prefixerRandom(2), // keep generating new links
+			workers:         100,
+			invokeTimeoutMS: 102,
+			rateSec:         10, // 100ms per call
+			resultAbout:     1,  // 1
 		},
 	}
 
 	for i, tt := range tests {
 		// not parallel safe due to global use of links
 		t.Run(fmt.Sprintf("test %d", i), func(t *testing.T) {
-			// defer goleak.VerifyNone(t)
-			HTTPRATESEC = tt.rateSec
-			GOWORKERS = tt.workers
+			defer goleak.VerifyNone(t)
+
+			httpMS := 20
+			httpTimeout := (time.Millisecond * time.Duration(httpMS))
+			linkBufferSize := 200
+			dispatcherTimeout := httpTimeout * 2
+
 			links = tt.links
-			resultNo := resultCollectorTO(tt.timeoutMS, t)
+
+			gc := NewGetClient(HTTPWORKERS, httpTimeout)
+			gc.getURL = getURLer
+
+			d := NewDispatch("https://example.com",
+				tt.workers,
+				linkBufferSize,
+				tt.rateSec,
+				[]string{},
+				dispatcherTimeout,
+				time.Millisecond*time.Duration(tt.invokeTimeoutMS),
+				gc,
+			)
+			resultNo := 0
+			for range d.Dispatcher() {
+				resultNo++
+			}
+
+			// t.Logf("got %d sort of want %d", resultNo, tt.resultAbout)
 			if got, want := resultNo, tt.resultAbout; got < want || got > (want+5) {
 				t.Errorf("got %d want >= %d results", got, want)
 			}

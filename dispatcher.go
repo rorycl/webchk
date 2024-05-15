@@ -34,7 +34,8 @@ const (
 	StatusNotOk     = linkError("StatusNotOk")
 )
 
-var (
+// Defaults
+const (
 	// GOWORKERS is the number of worker goroutines to start processing
 	// http queries
 	GOWORKERS = 8
@@ -51,12 +52,11 @@ var (
 	// DISPATCHERTIMEOUT is how long the dispatcher will wait for
 	// results. This is slightly longer than HTTPTIMEOUT
 	DISPATCHERTIMEOUT time.Duration = 1800 * time.Millisecond
-
-	// url suffixes to skip
-	URLSuffixesToSkip = []string{".png", ".jpg", ".jpeg", ".heic", ".svg"}
-	// getURLer indirects getURL for testing
-	getURLer func(url, referrer string, searchTerms []string) (Result, []string) = getURL
 )
+
+// urlSuffixesToSkip are urls with extensions that should not be
+// followed.
+var urlSuffixesToSkip = []string{".png", ".jpg", ".jpeg", ".heic", ".svg"}
 
 var (
 	// ErrDispatchTimeoutTooSmall is an error message when the
@@ -84,7 +84,7 @@ func followURLs(baseURL string) func(u string) bool {
 		if _, ok := uniqueURLs[u]; ok {
 			return false
 		}
-		for _, skip := range URLSuffixesToSkip {
+		for _, skip := range urlSuffixesToSkip {
 			if strings.HasSuffix(u, skip) {
 				return false
 			}
@@ -94,14 +94,62 @@ func followURLs(baseURL string) func(u string) bool {
 	}
 }
 
+// dispatch encapsulates the components needed to make recursive web
+// calls: the base url, search terms, decorated http.Client and timeout
+// for the calls.
+type dispatch struct {
+	baseURL           string
+	workers           int
+	linkBufferSize    int
+	httpRateSec       int
+	searchTerms       []string
+	dispatcherTimeout time.Duration // processing timeout
+	ctxTimeout        time.Duration // program timeout
+	client            *getClient
+}
+
+// NewDispatch returns a pointer to a dispatch struct after
+// initialisation.
+func NewDispatch(
+	baseURL string,
+	workers int,
+	linkBufferSize int,
+	httpRateSec int,
+	searchTerms []string,
+	dispatcherTimeout time.Duration,
+	timeout time.Duration,
+	client *getClient,
+) *dispatch {
+	if workers < 1 {
+		workers = GOWORKERS
+	}
+	if linkBufferSize < 1 {
+		linkBufferSize = LINKBUFFERSIZE
+	}
+	if httpRateSec < 1 {
+		httpRateSec = HTTPRATESEC
+	}
+	d := dispatch{
+		baseURL:           baseURL,
+		workers:           workers,
+		linkBufferSize:    linkBufferSize,
+		httpRateSec:       httpRateSec,
+		searchTerms:       searchTerms,
+		dispatcherTimeout: dispatcherTimeout,
+		ctxTimeout:        timeout,
+		client:            client,
+	}
+	return &d
+}
+
 // Dispatcher is a function for launching worker goroutines to process
 // getURL functions to produce Results. Since the initial page(s)
 // produce more links than can be easily processed, a buffered channel
 // is used to store urls waiting to be processed. If the channel becomes
 // full the program will start to shut down.
-func Dispatcher(baseURL string, searchTerms []string, ctxTimeout time.Duration) <-chan Result {
+func (d *dispatch) Dispatcher() <-chan Result {
 
-	if DISPATCHERTIMEOUT < HTTPTIMEOUT {
+	if d.ctxTimeout < d.client.client.Timeout {
 		fmt.Println(ErrDispatchTimeoutTooSmall)
 	}
 
@@ -116,11 +164,11 @@ func Dispatcher(baseURL string, searchTerms []string, ctxTimeout time.Duration) 
 		outputLinks := make(chan []refLink)
 
 		// use the x/time/rate token bucket rate limiter
-		rateLimit := rate.NewLimiter(rate.Limit(HTTPRATESEC), 1)
+		rateLimit := rate.NewLimiter(rate.Limit(d.httpRateSec), 1)
 
 		var wg sync.WaitGroup
-		wg.Add(GOWORKERS)
-		for range GOWORKERS {
+		wg.Add(d.workers)
+		for range d.workers {
 			go func() {
 				defer wg.Done()
 				for {
@@ -132,7 +180,7 @@ func Dispatcher(baseURL string, searchTerms []string, ctxTimeout time.Duration) 
 						if err != nil {
 							return // ctx timeout
 						}
-						result, links := getURLer(rl.url, rl.referrer, searchTerms)
+						result, links := d.client.getURL(rl.url, rl.referrer, d.searchTerms)
 						// done checks for each send of the results from
 						// getURLer are needed as getURLer may take some
 						// time. The guards are to stop sends causing
@@ -163,30 +211,30 @@ func Dispatcher(baseURL string, searchTerms []string, ctxTimeout time.Duration) 
 		return results, outputLinks
 	}
 
-	links := make(chan refLink, LINKBUFFERSIZE)
+	links := make(chan refLink, d.linkBufferSize)
 	resultsOutput := make(chan Result)
 
 	var ctx context.Context
 	var cancel context.CancelFunc
 	switch {
-	case ctxTimeout <= 0:
+	case d.ctxTimeout <= 0:
 		ctx, cancel = context.WithCancel(context.Background())
 	default:
-		ctx, cancel = context.WithTimeout(context.Background(), ctxTimeout)
+		ctx, cancel = context.WithTimeout(context.Background(), d.ctxTimeout)
 	}
 
 	results, linksFound := concurrentURLgetter(ctx, links)
 
-	follow := followURLs(baseURL)
-	links <- refLink{url: baseURL, referrer: "/"} // start links with baseurl
+	follow := followURLs(d.baseURL)
+	links <- refLink{url: d.baseURL, referrer: "/"} // start links with baseurl
 
 	// define timeout and timeout reset function
-	timeout := time.NewTimer(DISPATCHERTIMEOUT)
+	timeout := time.NewTimer(d.dispatcherTimeout)
 	toResetter := func() {
 		if !timeout.Stop() {
 			<-timeout.C
 		}
-		timeout.Reset(DISPATCHERTIMEOUT)
+		timeout.Reset(d.dispatcherTimeout)
 	}
 
 	// this func is the main coordinator of Dispatcher, putting incoming
@@ -198,7 +246,7 @@ func Dispatcher(baseURL string, searchTerms []string, ctxTimeout time.Duration) 
 		defer close(links)
 		defer func() {
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				fmt.Printf("deadline of %s exceeded. quitting...\n", ctxTimeout)
+				fmt.Printf("deadline of %s exceeded. quitting...\n", d.ctxTimeout)
 			}
 			cancel()
 		}()
