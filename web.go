@@ -12,20 +12,41 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"golang.org/x/net/html"
 )
 
-var (
-	// Client is a shared http.Client with a specific configuration
-	// including Transport config
-	Client *http.Client = &http.Client{
-		Transport: &http.Transport{
-			MaxConnsPerHost: HTTPWORKERS,
-		},
-		Timeout: HTTPTIMEOUT,
+// getClient encapsulates an http.Client and the functions used against
+// that client, which are parameterised to allow for convenient swapping
+// out during testing
+type getClient struct {
+	client     *http.Client
+	getURL     func(url, referrer string, searchTerms []string) (Result, []string)
+	getLinks   func(body []byte, url *url.URL) ([]string, error)
+	getMatches func(body []byte, searchTerms []string) []SearchMatch
+}
+
+// NewGetClient initialises a new getClient.
+func NewGetClient(httpWorkers int, httpTimeout time.Duration) *getClient {
+	if httpWorkers == 0 {
+		httpWorkers = HTTPWORKERS
 	}
-)
+	if httpTimeout == 0 {
+		httpTimeout = HTTPTIMEOUT
+	}
+	g := getClient{}
+	g.client = &http.Client{
+		Transport: &http.Transport{
+			MaxConnsPerHost: httpWorkers,
+		},
+		Timeout: httpTimeout,
+	}
+	g.getURL = g.get
+	g.getLinks = getLinks
+	g.getMatches = getMatches
+	return &g
+}
 
 // Result is url result provided by a call to a web page
 type Result struct {
@@ -34,13 +55,6 @@ type Result struct {
 	matches       []SearchMatch // search term matches from this URL
 	err           error
 }
-
-var (
-	// getLinkser indirects getLinks for testing
-	getLinker func(body []byte, url *url.URL) ([]string, error) = getLinks
-	// getMatcheser indirects getMatches for testing
-	getMatcher func(body []byte, searchTerms []string) []SearchMatch = getMatches
-)
 
 // SearchMatch is a record of a search term match in an html file
 type SearchMatch struct {
@@ -56,7 +70,7 @@ func (s SearchMatch) String() string {
 // get gets a URL, reporting a status if not 200, extracts the links
 // from the page and reports if there are any matches to the
 // searchTerms.
-func getURL(url, referrer string, searchTerms []string) (Result, []string) {
+func (g *getClient) get(url, referrer string, searchTerms []string) (Result, []string) {
 	r := Result{
 		url:      url,
 		referrer: referrer,
@@ -64,7 +78,7 @@ func getURL(url, referrer string, searchTerms []string) (Result, []string) {
 	}
 	links := []string{}
 
-	resp, err := Client.Get(url)
+	resp, err := g.client.Get(url)
 	if err != nil {
 		r.err = err
 		return r, links
@@ -85,13 +99,13 @@ func getURL(url, referrer string, searchTerms []string) (Result, []string) {
 		return r, links
 	}
 
-	links, err = getLinker(body, resp.Request.URL)
+	links, err = g.getLinks(body, resp.Request.URL)
 	if err != nil {
 		r.err = fmt.Errorf("links error: %w", err)
 		return r, links
 	}
 
-	r.matches = getMatcher(body, searchTerms)
+	r.matches = g.getMatches(body, searchTerms)
 
 	return r, links
 }

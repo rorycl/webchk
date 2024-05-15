@@ -153,6 +153,41 @@ func TestGetLinks(t *testing.T) {
 	}
 }
 
+func TestGetMakeClient(t *testing.T) {
+
+	tp := func(td string) time.Duration {
+		d, err := time.ParseDuration(td)
+		if err != nil {
+			t.Fatalf("time parsing error: %v", err)
+		}
+		return d
+	}
+
+	tests := []struct {
+		name        string
+		httpWorkers int
+		httpTimeout time.Duration
+		wantWorkers int
+		wantTimeout time.Duration
+	}{
+		{"defaults", 0, time.Duration(0), HTTPWORKERS, HTTPTIMEOUT}, // use defaults
+		{"custom_1", 1, tp("1m20s"), 1, tp("1m20s")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := NewGetClient(tt.httpWorkers, tt.httpTimeout)
+			thisTransport := d.client.Transport.(*http.Transport)
+			if got, want := thisTransport.MaxConnsPerHost, tt.wantWorkers; got != want {
+				t.Errorf("httpworkers got %v != want %v", got, want)
+			}
+			if got, want := d.client.Timeout, tt.wantTimeout; got != want {
+				t.Errorf("timeout got %v != want %v", got, want)
+			}
+		})
+	}
+}
+
 func TestGetURL(t *testing.T) {
 
 	serverResponseText := "hello world"
@@ -171,19 +206,22 @@ func TestGetURL(t *testing.T) {
 	defer server.Close()
 	server.Config.ReadTimeout = 200 * time.Millisecond
 
-	// indirect package Client
-	Client = server.Client()
-	Client.Timeout = 300 * time.Millisecond
-
 	// indirect getLinks and getMatch
 	var linkError error = nil
 	var aLinkError = errors.New("link error")
-	getLinker = func(body []byte, url *url.URL) ([]string, error) {
+	getLinker := func(body []byte, url *url.URL) ([]string, error) {
 		return []string{}, linkError
 	}
-	getMatcher = func(body []byte, searchTerms []string) []SearchMatch {
+	getMatcher := func(body []byte, searchTerms []string) []SearchMatch {
 		return []SearchMatch{}
 	}
+
+	// make new get client
+	g := getClient{}
+	g.client = server.Client()
+	g.client.Timeout = 300 * time.Millisecond
+	g.getLinks = getLinker
+	g.getMatches = getMatcher
 
 	tests := []struct {
 		// server
@@ -271,7 +309,7 @@ func TestGetURL(t *testing.T) {
 				linkError = tt.linkError
 			}
 
-			result, _ := getURL(tt.url, "/referrer", tt.searchTerms)
+			result, _ := g.get(tt.url, "/referrer", tt.searchTerms)
 
 			if result.err != tt.result.err {
 				if !errors.Is(result.err, tt.result.err) {
