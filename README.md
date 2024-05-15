@@ -44,27 +44,27 @@ download a binary from [Releases](./releases/).
 Example:
 
 ```
-$ ./webchk -v -s "espionage" https://slashdot.org | head -n 20
+rory:~/src/go-webchk$ ./webchk -v -s "amazing" https://slashdot.org | head -n 20 
 
 Commencing search of https://slashdot.org:
 https://slashdot.org
 https://slashdot.org/jobs
+https://slashdot.org/faq
+https://slashdot.org/my/login
 https://slashdot.org/faq/slashmeta.shtml
 https://slashdot.org/hof.shtml
+https://slashdot.org/my/newuser
+- status 403 (from https://slashdot.org)
 https://slashdot.org/index2.pl
-https://slashdot.org/my/newuser : status 403
-https://slashdot.org/faq
-https://slashdot.org/login.pl
 https://slashdot.org/my/mailpassword
-https://slashdot.org/my/login
+https://slashdot.org/blog
+> line: 3229 match: amazing
+https://slashdot.org/archive.pl
 https://slashdot.org/newsletter
+https://slashdot.org/poll/3251/will-bytedance-be-forced-to-divest-tiktok
+https://slashdot.org/polls
 https://slashdot.org/popular
-https://slashdot.org/popular
-> line: 2522 match: espionage
-> line: 2524 match: espionage
-https://slashdot.org/archive.pl
-https://slashdot.org/archive.pl
-> line: 1352 match: espionage
+https://slashdot.org/story/22/05/26/1748248/broadcom-to-acquire-vmware-in-massive-61-billion-deal
 ```
 
 
