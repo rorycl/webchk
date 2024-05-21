@@ -149,7 +149,7 @@ func NewDispatch(
 // full the program will start to shut down.
 func (d *dispatch) Dispatcher() <-chan Result {
 
-	if d.ctxTimeout < d.client.client.Timeout {
+	if d.ctxTimeout > 0 && d.ctxTimeout < d.client.client.Timeout {
 		fmt.Println(ErrDispatchTimeoutTooSmall)
 	}
 

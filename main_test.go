@@ -88,6 +88,20 @@ func TestGetOptions(t *testing.T) {
 			Timeout:     "3m20s",
 		},
 		{ // 10
+			argString:   `<prog> -s "hi" https://www.test.com`,
+			SearchTerms: []string{"hi"},
+			BaseURL:     "https://www.test.com",
+			ok:          true,
+			Timeout:     "2m", // default
+		},
+		{ // 11
+			argString:   `<prog> -t "0s" -s "hi" https://www.test.com`,
+			SearchTerms: []string{"hi"},
+			BaseURL:     "https://www.test.com",
+			ok:          true,
+			Timeout:     "0s", // no timeout
+		},
+		{ // 12
 			argString:   `<prog> -v -s "hi" -w 100 -s "there" https://www.test.com`,
 			SearchTerms: []string{"hi", "there"},
 			Verbose:     true,
@@ -95,7 +109,7 @@ func TestGetOptions(t *testing.T) {
 			ok:          true,
 			Workers:     100,
 		},
-		{ // 11
+		{ // 13
 			argString:   `<prog> -v -s "hi" -x 100 -s "there" https://www.test.com`,
 			SearchTerms: []string{"hi", "there"},
 			Verbose:     true,
@@ -103,7 +117,7 @@ func TestGetOptions(t *testing.T) {
 			ok:          true,
 			HTTPWorkers: 100,
 		},
-		{ // 12
+		{ // 14
 			argString:   `<prog> -v -t 1h20m10s -q 19 -s "hi" -z 5 -w 6 -x 7 -s "there" https://www.test.com`,
 			SearchTerms: []string{"hi", "there"},
 			Verbose:     true,
